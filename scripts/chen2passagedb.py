@@ -23,7 +23,7 @@ parser.add_argument('-l', '--lang', required=True, action='store', type=str)
 parser.add_argument('-c', '--chendb', required=True, action='store', type=str)
 parser.add_argument('-d', '--dst', required=True, action='store', type=str)
 parser.add_argument('-s', '--strategy', required=True, action='store', type=str)
-parser.add_argument('--test', action='store_ture')
+parser.add_argument('--test', action='store_true')
 
 
 def split_into_100words(text, nlp, strategy='wrap'):
@@ -38,7 +38,7 @@ def split_into_100words(text, nlp, strategy='wrap'):
         splits.append(''.join(t.text_with_ws for t in processed[:100]))
         processed = processed[100:]
 
-    if len(processed < 10):
+    if len(processed) < 10:
         # if its too small throw the remainder away
         pass
     elif strategy == 'wrap':
