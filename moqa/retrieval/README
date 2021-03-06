@@ -1,0 +1,20 @@
+connection.py
+    classes: Server, Client
+        Server:
+            is performin
+            __init__(port)  opens socket and listens to clients
+            run()           deals with search requests
+
+        Client:
+            __init__(...)   opens socket, connects to server and sets up the server
+            search([{question, lang, id}]) sends queries to server and waits for response
+            stop(stop_server) stops client and/or server
+
+retrieval.py:
+    classes: Indexer, Searcher
+        Indexer: creates index
+            createIndex()
+        Searcher:
+            addLang
+            Todo
+

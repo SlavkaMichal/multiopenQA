@@ -1,0 +1,10 @@
+# Preparing wikipedia
+
+`
+./extract.sh
+
+LANG='de'
+python scripts/chen2017/build_db.py data/wiki/$LANG/*.bz2 data/wiki/$LANG/$LANGwiki_chenprep.db --preprocess scripts/chen2017/prep_wikipedia.py --num-workers 6
+
+python scripts/chen2passagedb.py --lang $LANG --chendb data/wiki/$LANG/$LANGwiki_chenprep.db --strategy wrap
+
