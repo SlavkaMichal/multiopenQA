@@ -21,12 +21,13 @@ def preprocess(article):
     # Filter some disambiguation pages not caught by the WikiExtractor
     if article['id'] in BLACKLIST:
         return None
-    if '(disambiguation)' in article['title'].lower() or \
-        '(disambiguation page)' in article['title'].lower():
+    if '(disambiguation)' in article['title'].lower():
+        return None
+    if '(disambiguation page)' in article['title'].lower():
         return None
 
     # Take out List/Index/Outline pages (mostly links)
-    if re.match(r'(Index of .+)|(Outline of .+)',
+    if re.match(r'(List of .+)|(Index of .+)|(Outline of .+)',
                 article['title']):
         return None
 

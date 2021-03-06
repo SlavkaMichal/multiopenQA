@@ -12,10 +12,10 @@ import json
 import os
 import logging
 import importlib.util
+import unicodedata
 
 from multiprocessing import Pool as ProcessPool
 from tqdm import tqdm
-from drqa.retriever import utils
 
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
@@ -30,6 +30,10 @@ logger.addHandler(console)
 
 
 PREPROCESS_FN = None
+
+
+def normalize(text):
+    return unicodedata.normalize('NFD', text)
 
 
 def init(filename):
@@ -78,7 +82,7 @@ def get_contents(filename):
             if not doc:
                 continue
             # Add the document
-            documents.append((utils.normalize(doc['id']), doc['text']))
+            documents.append((normalize(doc['id']), doc['text']))
     return documents
 
 
