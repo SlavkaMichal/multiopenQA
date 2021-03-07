@@ -3,6 +3,8 @@ from moqa.common.utils import get_root, timestamp
 from moqa.db.db import PassageDB
 from typing import AnyStr
 from argparse import Namespace
+import logging
+from tqdm import tqdm
 
 # lucene imports
 import lucene
@@ -114,6 +116,8 @@ class Indexer(Retriever):
         super().__init__()
 
         idxdir = self.get_index_name(lang, db.path, index_dir)
+        logging.info(f"Index dir: {idxdir}")
+
         self.db = db
 
         # stores index files, poor concurency try NIOFSDirectory instead
@@ -165,13 +169,15 @@ class Indexer(Retriever):
         self.fieldIdx     = Field("idx", "dummy", self.ftmeta)
 
     def createIndex(self):
-        for i, doc in enumerate(self.db):
-            self.fieldIdx.setIntValue(i)
-            self.fieldId.setStringValue(doc['id'])
-            self.fieldTitle.setStringValue(doc['title'])
-            self.fieldContext.setStringValue(doc['context'])
-            self.writer.addDocument(self.doc)
-        self.commit()
+        with tqdm(total=len(self.db)) as pbar:
+            for id, title, passage in self.db:
+                # TODO maybe id has to be string
+                self.fieldId.setStringValue(id)
+                self.fieldTitle.setStringValue(title)
+                self.fieldContext.setStringValue(passage)
+                self.writer.addDocument(self.doc)
+                pbar.update()
+            self.commit()
 
     def commit(self):
         self.writer.commit()

@@ -77,7 +77,7 @@ def main():
         idx = 0
         chendb.execute('SELECT * FROM documents')
         for title, text in chendb:
-            splits = split_into_100words(text, nlp, args.strategy)
+            splits = split_into_100words(text.replace("Section::::",""), nlp, args.strategy)
             if splits is None:
                 pbar.update()
                 continue
