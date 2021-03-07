@@ -22,9 +22,8 @@ OUTPUT=data/wiki/$WIKILANG/json
 echo "Input: ${INPUT}"
 echo "Processes: ${PROCESSES}"
 echo "Output: ${OUTPUT}"
-exit 0
 
-python WikiExtractor.py $INPUT \
+python scripts/WikiExtractor.py $INPUT \
        --json \
        --processes $PROCESSES \
        --output $OUTPUT \

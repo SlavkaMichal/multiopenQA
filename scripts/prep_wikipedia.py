@@ -32,4 +32,4 @@ def preprocess(article):
         return None
 
     # Return doc with `id` set to `title`
-    return {'id': article['title'], 'text': article['text']}
+    return {'id': article['title'], 'text': article['text'].replace("Section::::","")}
