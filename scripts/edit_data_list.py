@@ -1,6 +1,6 @@
 import jsonlines as jl
 
-DUMP_LIST = 'dump_list.jsonl'
+DUMP_LIST = 'data/wiki/dump_list.jsonl'
 
 
 def update(key, values):

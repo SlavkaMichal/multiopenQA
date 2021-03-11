@@ -6,16 +6,18 @@ import spacy
 import argparse
 
 spacy_lang = {
-    "da": "da_core_news_sm",
-    "nl": "nl_core_news_sm",
-    "fr": "fr_core_news_sm",
-    "de": "de_core_news_sm",
-    "ja": "ja_core_news_sm",
-    "no": "nb_core_news_sm",
-    "pl": "pl_core_news_sm",
-    "pt": "pt_core_news_sm",
-    "ru": "ru_core_news_sm",
-    "es": "es_core_news_sm",
+    "da"   : "da_core_news_sm",
+    "nl"   : "nl_core_news_sm",
+    "fr"   : "fr_core_news_sm",
+    "de"   : "de_core_news_sm",
+    "ja"   : "ja_core_news_sm",
+    "no"   : "nb_core_news_sm",
+    "pl"   : "pl_core_news_sm",
+    "pt"   : "pt_core_news_sm",
+    "ru"   : "ru_core_news_sm",
+    "es"   : "es_core_news_sm",
+    # following are processed by multilingual model
+    "multi": "xx_ent_wiki_sm",
     }
 
 parser = argparse.ArgumentParser(description='Convert chen_prep.db to passage.db')
@@ -60,7 +62,10 @@ def split_into_100words(text, nlp, strategy='wrap'):
 
 def main():
     args = parser.parse_args()
-    nlp = spacy.load(spacy_lang[args.lang])
+    if args.lang in spacy_lang:
+        nlp = spacy.load(spacy_lang[args.lang])
+    else:
+        nlp = spacy.load(spacy_lang['multi'])
 
     conn = sqlite3.connect(args.chendb)
     chendb = conn.cursor()
