@@ -1,9 +1,7 @@
 import os
-from moqa.common.utils import get_root, timestamp
 from moqa.db.db import PassageDB
 from typing import AnyStr
 from argparse import Namespace
-import logging
 from tqdm import tqdm
 
 # lucene imports
@@ -18,7 +16,7 @@ from org.apache.lucene.search.similarities import BM25Similarity
 from org.apache.lucene.index import DirectoryReader
 from org.apache.lucene.queryparser.classic import QueryParser, MultiFieldQueryParser
 from org.apache.lucene.search import IndexSearcher
-
+from org.apache.lucene.search import BooleanClause
 from org.apache.lucene.analysis.standard import StandardAnalyzer
 from org.apache.lucene.analysis.en import EnglishAnalyzer
 from org.apache.lucene.analysis.de import GermanAnalyzer
@@ -42,41 +40,48 @@ from org.apache.lucene.analysis.nl import DutchAnalyzer
 from org.apache.lucene.analysis.da import DanishAnalyzer
 from org.apache.lucene.analysis.hi import HindiAnalyzer
 from org.apache.lucene.analysis.bn import BengaliAnalyzer
-from org.apache.lucene.analysis.cn.smart import SmartChineseAnalyzer
+# from org.apache.lucene.analysis.cn.smart import SmartChineseAnalyzer
+from moqa.common import config
+import logging
+
+logging.basicConfig(
+    format=f"%(asctime)s:%(filename)s:%(lineno)d:%(levelname)s: %(message)s",
+    filename=config.log_file,
+    level=config.log_level)
 
 analyzers = {
     'standard': StandardAnalyzer,
-#    'vi': StandardAnalyzer,     # Vietnamese
-#    'te': StandardAnalyzer,     # Telugu
-#    'sw': StandardAnalyzer,     # Swahili
-#    'ms': StandardAnalyzer,     # Malay
-#    'km': StandardAnalyzer,     # Khmer
-#    'he': StandardAnalyzer,     # Hebrew
+    #    'vi': StandardAnalyzer,     # Vietnamese
+    #    'te': StandardAnalyzer,     # Telugu
+    #    'sw': StandardAnalyzer,     # Swahili
+    #    'ms': StandardAnalyzer,     # Malay
+    #    'km': StandardAnalyzer,     # Khmer
+    #    'he': StandardAnalyzer,     # Hebrew
 
-    'en': EnglishAnalyzer,
-    'es': SpanishAnalyzer,
-    'de': GermanAnalyzer,
-    'ar': ArabicAnalyzer,
-    'ru': RussianAnalyzer,
-    'ko': CJKAnalyzer, # Korean
-    'ja': CJKAnalyzer, # Japanese
-    'fi': FinnishAnalyzer,
-    'th': ThaiAnalyzer,
-    'tr': TurkishAnalyzer,
-    'sv': SwedishAnalyzer,
-    'br': BrazilianAnalyzer,
-    'pt': PortugueseAnalyzer,
-    'no': NorwegianAnalyzer,
-    'it': ItalianAnalyzer,
-    'id': IndonesianAnalyzer,
-    'hu': HungarianAnalyzer,
-    'pl': PolishAnalyzer,
-    'fr': FrenchAnalyzer,
-    'nl': DutchAnalyzer,
-    'da': DanishAnalyzer,
-    'hi': HindiAnalyzer,
-    'bn': BengaliAnalyzer,
-    'zh': SmartChineseAnalyzer,
+    'en'      : EnglishAnalyzer,
+    'es'      : SpanishAnalyzer,
+    'de'      : GermanAnalyzer,
+    'ar'      : ArabicAnalyzer,
+    'ru'      : RussianAnalyzer,
+    'ko'      : CJKAnalyzer,  # Korean
+    'ja'      : CJKAnalyzer,  # Japanese
+    'fi'      : FinnishAnalyzer,
+    'th'      : ThaiAnalyzer,
+    'tr'      : TurkishAnalyzer,
+    'sv'      : SwedishAnalyzer,
+    'br'      : BrazilianAnalyzer,
+    'pt'      : PortugueseAnalyzer,
+    'no'      : NorwegianAnalyzer,
+    'it'      : ItalianAnalyzer,
+    'id'      : IndonesianAnalyzer,
+    'hu'      : HungarianAnalyzer,
+    'pl'      : PolishAnalyzer,
+    'fr'      : FrenchAnalyzer,
+    'nl'      : DutchAnalyzer,
+    'da'      : DanishAnalyzer,
+    'hi'      : HindiAnalyzer,
+    'bn'      : BengaliAnalyzer,
+    'zh'      : CJKAnalyzer,  # Chinese
     }
 
 class Retriever(object):
@@ -92,14 +97,14 @@ class Retriever(object):
             self.b=b
 
     @classmethod
-    def get_index_name(self, lang: AnyStr, db_path: AnyStr, index_path: AnyStr, suffix=""):
-        db_name = os.path.basename(db_path)
-        if suffix != "":
-            name = f"{db_name}_{lang}_{suffix}.index"
+    def get_index_name(self, lang: AnyStr, index_dir: AnyStr = None):
+        if index_dir is not None:
+            idx_dir = index_dir
         else:
-            name = f"{db_name}_{lang}.index"
-        path = os.path.join(get_root(),'data', 'indexes') if index_path is None else index_path
-        return os.path.join(path, name)
+            name = f"{lang}_passage.index"
+            idx_dir = os.path.join('data', 'indexes', name)
+        logging.info(f"Index dir: {idx_dir}")
+        return idx_dir
 
 class Indexer(Retriever):
     def __init__(self, lang: AnyStr, db: PassageDB, analyzer: AnyStr, index_dir=None, ram_size=2048 ):
@@ -114,17 +119,18 @@ class Indexer(Retriever):
         Returns:
         """
         super().__init__()
+        lucene.initVM(vmargs=['-Djava.awt.headless=true'])
 
-        idxdir = self.get_index_name(lang, db.path, index_dir)
-        logging.info(f"Index dir: {idxdir}")
+        idx_dir = self.get_index_name(lang, index_dir)
+        logging.info(f"Creating index in {idx_dir}!")
 
         self.db = db
 
         # stores index files, poor concurency try NIOFSDirectory instead
-        store = SimpleFSDirectory(Paths.get(idxdir))
+        store = SimpleFSDirectory(Paths.get(idx_dir))
         # limit max. number of tokens per document.
         # analyzer will not consume more tokens than that
-        #analyzer = LimitTokenCountAnalyzer(analyzer, 1048576)
+        # analyzer = LimitTokenCountAnalyzer(analyzer, 1048576)
         # configuration for index writer
         config = IndexWriterConfig(analyzers[analyzer]())
         # creates or overwrites index
@@ -166,52 +172,61 @@ class Indexer(Retriever):
         self.fieldContext = Field("context", "dummy", self.ftdata)
         self.doc.add(self.fieldContext)
         self.fieldId    = Field("id", "dummy", self.ftmeta)
-        self.fieldIdx     = Field("idx", "dummy", self.ftmeta)
+        self.doc.add(self.fieldId)
 
     def createIndex(self):
         with tqdm(total=len(self.db)) as pbar:
             for id, title, passage in self.db:
-                # TODO maybe id has to be string
-                self.fieldId.setStringValue(id)
+                self.fieldId.setStringValue(str(id))
                 self.fieldTitle.setStringValue(title)
                 self.fieldContext.setStringValue(passage)
                 self.writer.addDocument(self.doc)
                 pbar.update()
-            self.commit()
+        self.commit()
 
     def commit(self):
+        logging.info("Committing index...")
         self.writer.commit()
         self.writer.close()
 
 class Searcher(Retriever):
     def __init__(self, k1=None, b=None):
         super().__init__(k1, b)
-        print("Searcher k1: {}, b: {}", self.k1, self.b)
+        lucene.initVM(vmargs=['-Djava.awt.headless=true'])
+        logging.info(f"Searcher k1: {self.k1}, b: {self.b}")
         self.similarity = BM25Similarity(self.k1, self.b)
-        self.searcher = {}
-        self.parser = {}
-        self.multi_parser = {}
+        self.searcher = { }
+        self.parser_context = { }
+        self.parser_title = { }
+        self.parser_multi = { }
+        self.idx_dir = { }
+        self.analyzer = { }
         self.__call__ = self.query
 
-    def addLang(self, lang, analyzer, index_name, index_path=None):
+    def addLang(self, lang, index_dir=None):
         """ Initialises index searcher in different languages
 
         Parameters:
         lang     (str): ['en', 'es', 'de']
-        anlyzer  (str): ['en', 'es', 'de', 'standard']
         index_path (str): path to index
 
         Returns:
         """
-        idxdir = self.get_index_name(lang=lang, db_path=index_name, index_path=index_path)
-        if not os.path.exists(idxdir):
-            raise ValueError(f"No index in {idxdir}!")
-        directory = SimpleFSDirectory(Paths.get(idxdir))
+        idx_dir = self.get_index_name(lang, index_dir=index_dir)
+        self.idx_dir[lang] = idx_dir
+        if not os.path.exists(idx_dir):
+            raise ValueError(f"No index in {idx_dir}!")
+        directory = SimpleFSDirectory(Paths.get(idx_dir))
         self.searcher[lang] = IndexSearcher(DirectoryReader.open(directory))
-        self.parser[lang]   = QueryParser("context", analyzers[analyzer]())
-        self.multi_parser[lang] = MultiFieldQueryParser(["context", "title"], analyzers[analyzer])
-
+        self.analyzer[lang] = analyzers[lang]()
+        self.parser_context[lang] = QueryParser("context", self.analyzer[lang])
+        self.parser_title[lang] = QueryParser("title", self.analyzer[lang])
+        self.parser_multi[lang] = MultiFieldQueryParser(["title", "context"], self.analyzer[lang])
+        self.parser_multi[lang].setDefaultOperator(QueryParser.Operator.OR)
         self.searcher[lang].setSimilarity(self.similarity)
+
+    def get_index_dir(self, lang: str):
+        return self.idx_dir[lang]
 
     def printResult(self, scoreDocs, lang):
         print("Number of retrieved documents:", len(scoreDocs))
@@ -225,10 +240,9 @@ class Searcher(Retriever):
             print("Language:", doc.lang)
             print("Score:", doc.score)
             doc = doc.doc
-        print("Id:", doc.get('id').stringValue())
-        print("Index:", doc.get('idx').stringValue())
-        print("Name:", doc.get("title").encode('utf-8'))
-        print("Context:", doc.get("context").encode('utf-8'))
+        print("Id:", doc.get('id'))
+        # print("Name:", doc.get("title").encode('utf-8'))
+        # print("Context:", doc.get("context").encode('utf-8'))
         print("------------------------------------------------------")
 
     def getDoc(self, scoreDoc, lang):
@@ -243,21 +257,27 @@ class Searcher(Retriever):
         """
         Retrieve documents for question
         """
-        if not field == 'context' or not field == 'context_title':
+        if field not in ['context', 'context_title']:
             raise ValueError(f"Cannot search by {field}!")
         if lang not in self.searcher:
             raise RuntimeError(f"Language '{lang}' not added")
 
-        esccommand = self.parser[lang].escape(command)
+        esccommand = self.parser_context[lang].escape(command)
         if field == 'context':
-            query = self.parser[lang].parse(esccommand)
+            query = self.parser_context[lang].parse(esccommand)
         else:
-            query = self.multi_parser[lang].parse(esccommand)
+            # query = self.parser_multi[lang].parse(esccommand)
+            query = MultiFieldQueryParser.parse(
+                esccommand,
+                ['title', 'context'],
+                [BooleanClause.Occur.SHOULD, BooleanClause.Occur.SHOULD],
+                self.analyzer[lang])
         scoreDocs = self.searcher[lang].search(query, topk).scoreDocs
 
         docs = []
         for scoreDoc in scoreDocs:
-            docs.append(Namespace(score=scoreDoc.score, doc=self.getDoc(scoreDoc), lang=lang))
+            doc = self.getDoc(scoreDoc, lang)
+            docs.append(Namespace(score=scoreDoc.score, id=int(doc.get('id')), doc=doc, lang=lang))
         return docs
 
     #def queryMulti(self, command, lang, n=50, p=1):

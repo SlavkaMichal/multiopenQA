@@ -4,7 +4,9 @@ import os
 from typing import Optional, Tuple
 import torch
 from torch import nn
-from transformers import MT5Config
+from torch.nn import CrossEntropyLoss
+from transformers import MT5Config, MT5Tokenizer
+from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions, Seq2SeqLMOutput
 from transformers.models.t5.modeling_t5 import T5Stack, T5PreTrainedModel
 
 from moqa.common import utils
@@ -15,9 +17,9 @@ class MT5QA(T5PreTrainedModel):
     config_class = MT5Config
     _keys_to_ignore_on_load_missing = [
         r"encoder\.embed_tokens\.weight",
-    ]
+        ]
 
-    def __init__(self, config):
+    def __init__(self, config: MT5Config):
         super().__init__(config)
         self.model_dim = config.d_model
         self.root = utils.get_root()
@@ -104,7 +106,7 @@ class MT5QA(T5PreTrainedModel):
             #################################################
             ############### END OF MODIFICATION (MF)#########
             #################################################
-    ):
+            ):
         r"""
         labels (:obj:`torch.LongTensor` of shape :obj:`(batch_size,)`, `optional`):
             Labels for computing the sequence classification/regression loss. Indices should be in :obj:`[-100, 0, ...,
@@ -121,12 +123,14 @@ class MT5QA(T5PreTrainedModel):
             >>> model = MT5QA.from_pretrained('google/mt5-small')
 
             >>> input_ids = tokenizer('The <extra_id_0> walks in <extra_id_1> park', return_tensors='pt').input_ids
-            >>> labels = tokenizer('<extra_id_0> cute dog <extra_id_1> the <extra_id_2> </s>', return_tensors='pt').input_ids
+            >>> labels = tokenizer('<extra_id_0> cute dog <extra_id_1> the <extra_id_2> </s>',
+            return_tensors='pt').input_ids
             >>> outputs = model(input_ids=input_ids, labels=labels)
             >>> loss = outputs.loss
             >>> logits = outputs.logits
 
-            >>> input_ids = tokenizer("summarize: studies have shown that owning a dog is good for you ", return_tensors="pt").input_ids  # Batch size 1
+            >>> input_ids = tokenizer("summarize: studies have shown that owning a dog is good for you ",
+            return_tensors="pt").input_ids  # Batch size 1
             >>> outputs = model.generate(input_ids)
         """
         use_cache = use_cache if use_cache is not None else self.config.use_cache
@@ -143,7 +147,7 @@ class MT5QA(T5PreTrainedModel):
                 output_attentions=output_attentions,
                 output_hidden_states=output_hidden_states,
                 return_dict=return_dict,
-            )
+                )
             #################################################
             # Modification to T5ForConditionalGeneration (MF)
             #################################################
@@ -163,7 +167,7 @@ class MT5QA(T5PreTrainedModel):
                 last_hidden_state=encoder_outputs[0],
                 hidden_states=encoder_outputs[1] if len(encoder_outputs) > 1 else None,
                 attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
-            )
+                )
             concatenated_attention_mask = attention_mask  # Minor modification (MF)
         else:  # Minor modification (MF)
             # Assume concatenated encoder outputs are passed!
@@ -198,14 +202,15 @@ class MT5QA(T5PreTrainedModel):
             output_attentions=output_attentions,
             output_hidden_states=output_hidden_states,
             return_dict=return_dict,
-        )
+            )
 
         sequence_output = decoder_outputs[0]
 
         if self.config.tie_word_embeddings:
             # Rescale output before projecting on vocab
-            # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow/transformer/transformer.py#L586
-            sequence_output = sequence_output * (self.model_dim ** -0.5)
+            # See https://github.com/tensorflow/mesh/blob/fa19d69eafc9a482aff0b59ddd96b025c0cb207d/mesh_tensorflow
+            # /transformer/transformer.py#L586
+            sequence_output = sequence_output * (self.model_dim**-0.5)
 
         lm_logits = self.lm_head(sequence_output)
 
@@ -229,7 +234,7 @@ class MT5QA(T5PreTrainedModel):
             encoder_last_hidden_state=concatenated_encoder_outputs.last_hidden_state,  # Renamed (MF)
             encoder_hidden_states=concatenated_encoder_outputs.hidden_states,  # Renamed (MF)
             encoder_attentions=concatenated_encoder_outputs.attentions,  # Renamed (MF)
-        )
+            )
 
     #################################################
     # Modification to T5ForConditionalGeneration (MF)
@@ -243,10 +248,12 @@ class MT5QA(T5PreTrainedModel):
         hidden_states = encoder_outputs['last_hidden_state']
 
         assert hidden_states.shape[:2] == encoder_attention_mask.shape, \
-            f"Shapes of mask and hidden states do not match! {str(hidden_states.shape[:2])} vs {str(encoder_attention_mask.shape)}"
+            f"Shapes of mask and hidden states do not match! {str(hidden_states.shape[:2])} vs " \
+            f"{str(encoder_attention_mask.shape)}"
         # concatenate hidden states into the same dimension
         # supported subsequence types: document, question+document
-        # batch x contexts x sequence_len x hidden_dim -> batch x contexts * (subsequence_len_without_padding !variable size) x hidden_dim
+        # batch x contexts x sequence_len x hidden_dim -> batch x contexts * (subsequence_len_without_padding
+        # !variable size) x hidden_dim
         if self.config.fusion_strategy == "passages":
             mask = encoder_attention_mask.bool().view(-1) & passage_mask.bool().view(-1)
         elif self.config.fusion_strategy == "allinputs":
@@ -256,7 +263,7 @@ class MT5QA(T5PreTrainedModel):
         # there is no padding now
         attention_mask = torch.ones(
             hidden_states.size()[:2], device=hidden_states.device, dtype=torch.long
-        )
+            )
         encoder_outputs['last_hidden_state'] = hidden_states
         return encoder_outputs, attention_mask
 
@@ -266,7 +273,7 @@ class MT5QA(T5PreTrainedModel):
 
     def prepare_inputs_for_generation(
             self, input_ids, past=None, attention_mask=None, use_cache=None, encoder_outputs=None, **kwargs
-    ):
+            ):
 
         # cut decoder_input_ids if past is used
         if past is not None:
@@ -274,11 +281,11 @@ class MT5QA(T5PreTrainedModel):
 
         return {
             "decoder_input_ids": input_ids,
-            "past_key_values": past,
-            "encoder_outputs": encoder_outputs,
-            "attention_mask": attention_mask,
-            "use_cache": use_cache,
-        }
+            "past_key_values"  : past,
+            "encoder_outputs"  : encoder_outputs,
+            "attention_mask"   : attention_mask,
+            "use_cache"        : use_cache,
+            }
 
     def _reorder_cache(self, past, beam_idx):
         # if decoder past is not included in output
@@ -296,7 +303,7 @@ class MT5QA(T5PreTrainedModel):
                 # need to set correct `past` for each of the four key / value states
                 reordered_layer_past_states = reordered_layer_past_states + (
                     layer_past_state.index_select(0, beam_idx),
-                )
+                    )
 
             assert reordered_layer_past_states[0].shape == layer_past_states[0].shape
             assert len(reordered_layer_past_states) == len(layer_past_states)

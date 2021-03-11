@@ -1,6 +1,5 @@
 import copy
 import json
-import logging
 import os
 import socket
 import time
@@ -22,6 +21,13 @@ from moqa.common.utils import timestamp
 from moqa.common.eval_utils import metric_max_over_ground_truths, exact_match_score
 from moqa.generative.model import MT5QA
 from moqa.db.db import PassageDB
+from moqa.common import config
+import logging
+
+logging.basicConfig(
+    format=f"%(asctime)s:%(filename)s:%(lineno)d:%(levelname)s: %(message)s",
+    filename=config.log_file,
+    level=config.log_level)
 
 
 def get_model(m):
@@ -62,11 +68,12 @@ class Trainer:
         logging.debug(json.dumps(config, indent=4, sort_keys=True))
 
         include_passage_masks = config["fusion_strategy"] == "passages"
-        fields = MT5Dataset.prepare_fields(pad_t=self.tokenizer.pad_token_id)
         training_dataset = MT5Dataset
 
-        train = training_dataset(config["train_data"], fields=fields, tokenizer=self.tokenizer,
+        train = training_dataset(config["train_data"],
+                                 tokenizer=self.tokenizer,
                                  database=self.db,
+                                 langs=config["languages"],
                                  cache_dir=config["data_cache_dir"],
                                  context_length=config["context_length"],
                                  include_golden_passage=config["include_golden_passage_in_training"],
@@ -76,27 +83,31 @@ class Trainer:
                                  use_only_human_answer=config.get("use_human_answer_only", False),
                                  is_training=True)
 
-        val = MT5Dataset(config["val_data"], fields=fields, tokenizer=self.tokenizer,
-                         database=self.db,
-                         cache_dir=config["data_cache_dir"],
-                         context_length=config["context_length"],
-                         include_passage_masks=include_passage_masks,
-                         preprocessing_truncation=config["preprocessing_truncation"],
-                         use_only_human_answer=config.get("use_human_answer_only", False),
-                         is_training=False)
+        val = training_dataset(config["val_data"],
+                               tokenizer=self.tokenizer,
+                               database=self.db,
+                               langs=config["languages"],
+                               cache_dir=config["data_cache_dir"],
+                               context_length=config["context_length"],
+                               include_passage_masks=include_passage_masks,
+                               preprocessing_truncation=config["preprocessing_truncation"],
+                               use_only_human_answer=config.get("use_human_answer_only", False),
+                               is_training=False)
 
         logging.info("Loading model...")
         model = torch.load(config["model"], map_location=self.device) \
             if "model" in config \
             else MT5QA.from_pretrained().to(self.device)
 
-        test = MT5Dataset(config["test_data"], fields=fields, tokenizer=self.tokenizer,
-                          database=self.db,
-                          cache_dir=config["data_cache_dir"],
-                          context_length=self.config["context_length"],
-                          include_passage_masks=include_passage_masks,
-                          preprocessing_truncation=self.config["preprocessing_truncation"],
-                          is_training=False)
+        test = training_dataset(config["test_data"],
+                                tokenizer=self.tokenizer,
+                                database=self.db,
+                                langs=config["languages"],
+                                cache_dir=config["data_cache_dir"],
+                                context_length=self.config["context_length"],
+                                include_passage_masks=include_passage_masks,
+                                preprocessing_truncation=self.config["preprocessing_truncation"],
+                                is_training=False)
 
         logging.info(f"Training data examples:{len(train)}")
         logging.info(f"Validation data examples:{len(val)}")
@@ -552,8 +563,8 @@ sample_cfg = {
     "save_threshold"                    : 0.41,  # save up some disk space
 
     # cache where the transformers library will save the models
-    "transformers_cache"                : ".Transformers_cache",
-    "data_cache_dir"                    : ".data/reader/ranked/",
+    "transformers_cache"                : "data/cache/Transformers",
+    "data_cache_dir"                    : "data/cache/data",
 
     "dataset"                           : "nq",
 

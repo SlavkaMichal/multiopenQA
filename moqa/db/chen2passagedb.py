@@ -71,18 +71,19 @@ def main():
         raise RuntimeError(f"DB {dst} already exists")
     print(f"Creating {dst}")
     passage_db = sqlite3.connect(dst)
-    passage_db.execute("CREATE TABLE passages (id PRIMARY KEY, title, passage);")
+    passage_db.execute("CREATE TABLE passages (id, lang, title, passage, PRIMARY KEY (id, lang));")
 
     with tqdm(total=len) as pbar:
         idx = 0
         chendb.execute('SELECT * FROM documents')
         for title, text in chendb:
-            splits = split_into_100words(text.replace("Section::::",""), nlp, args.strategy)
+            splits = split_into_100words(text, nlp, args.strategy)
             if splits is None:
                 pbar.update()
                 continue
             for split in splits:
-                passage_db.execute("INSERT INTO passages VALUES (?,?,?)", (idx, title, split))
+                passage_db.execute("INSERT INTO passages (id, lang, title, passage) VALUES (?,?,?,?)",
+                                   (idx, args.lang, title, split))
                 idx += 1
             pbar.update()
 

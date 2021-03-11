@@ -5,6 +5,13 @@ from ..common.utils import get_root
 from .retrieval import Searcher
 import time
 import os
+from moqa.common import config
+import logging
+
+logging.basicConfig(
+    format=f"%(asctime)s:%(filename)s:%(lineno)d:%(levelname)s: %(message)s",
+    filename=config.log_file,
+    level=config.log_level)
 
 
 class Connection(object):
@@ -37,7 +44,7 @@ class Connection(object):
 
     def accept(self):
         (conn, addr) = self.sock.accept()
-        print("Connected to {}".format(addr))
+        logging.info(f"Connected to {addr}")
         self.conn = conn
 
     def connect(self, host, port):
@@ -46,7 +53,7 @@ class Connection(object):
         self.client = True
 
     def close(self, stop=False):
-        print("Stopping")
+        logging.info("Stopping")
         if not self.open:
             return
         msg = {'stop': stop}
@@ -68,9 +75,9 @@ class Connection(object):
 
 class Server(Connection):
     def __init__(self, port):
-        print("Initializing Connection")
+        logging.info("Initializing Connection")
         super().__init__()
-        print("Initializing VM")
+        logging.info("Initializing VM")
         lucene.initVM(vmargs=['-Djava.awt.headless=true'])
         self.sock.bind((socket.gethostname(), port))
         self.sock.listen()
@@ -99,7 +106,7 @@ class Server(Connection):
             recv = self.recvall()
             stop_recv = time.time()
             if 'init' in recv:
-                print("Initialising searcher")
+                logging.info("Initialising searcher")
                 if 'write_intensity' in recv['init']:
                     self.write_intensity = recv['init']['write_intensity']
                 if 'index_dir' in recv['init']:
@@ -125,17 +132,17 @@ class Server(Connection):
 
                 self.searcher = Searcher(k1=self.k1, b=self.b)
                 for lang in self.langs:
-                    self.searcher.addLang(lang, lang, self.index_dir)
+                    self.searcher.addLang(lang, self.index_dir)
                 self.sendall(dict(ok=True))
 
-                print(f"Write intensity: {self.write_intensity}")
-                print(f"Index path: {self.index_dir}")
-                print(f"b:          {self.b}")
-                print(f"k1:         {self.k1}")
-                print(f"topk:       {self.topk}")
-                print(f"field:      {self.field}")
-                print(f"ret_lucene:   {self.ret_lucene}")
-                print(f"langs:      {self.langs}")
+                logging.info(f"Write intensity: {self.write_intensity}")
+                logging.info(f"Index path: {self.index_dir}")
+                logging.info(f"b:          {self.b}")
+                logging.info(f"k1:         {self.k1}")
+                logging.info(f"topk:       {self.topk}")
+                logging.info(f"field:      {self.field}")
+                logging.info(f"ret_lucene:   {self.ret_lucene}")
+                logging.info(f"langs:      {self.langs}")
 
             if 'search' in recv:
                 response = dict(result=[])
@@ -162,7 +169,7 @@ class Server(Connection):
                 self.sendall(response)
 
             if 'stop' in recv:
-                print("Stopping")
+                logging.info("Stopping")
                 if recv['stop']:
                     self.close()
                     return True
@@ -172,10 +179,10 @@ class Server(Connection):
 
             end_request = time.time()
             if tally % self.write_intensity == 0 and self.write_intensity != 0:
-                print("Request number: ", tally)
-                print("Recv took:   ", stop_recv - start_recv)
-                print("Request took: ", end_request - stop_recv)
-                print("Request type: ", recv.keys())
+                logging.info("Request number: ", tally)
+                logging.info("Recv took:   ", stop_recv - start_recv)
+                logging.info("Request took: ", end_request - stop_recv)
+                logging.info("Request type: ", recv.keys())
             tally += 1
         return False
 
@@ -193,7 +200,7 @@ class Client(Connection):
                  ret_lucene: bool = False,  # score, luceneDoc, id
                  langs: list = None  # en
                  ):
-        print("Initializing Client")
+        logging.info("Initializing Client")
         super().__init__()
         self.sock.connect((host, port))
         msg = { 'init': dict(write_intensity=write_intensity, index_dir=index_dir, b=b, k1=k1,
@@ -202,7 +209,7 @@ class Client(Connection):
         # uninitialised values will be initialised as server default values
         msg['init'] = { k: v for k, v in msg['init'].items() if v is not None }
         for k, v in msg['init'].items():
-            print("{0: <12}: {1}".format(k, v))
+            logging.info("{0: <12}: {1}".format(k, v))
         self.sendall(msg)
         response = self.recvall()
         if 'error' in response:

@@ -1,0 +1,15 @@
+Monolingual:
+wiki/<LANG>/<LANG>_passage.db
+    table: passages; rows {id PK, title, passage}
+
+Multilingual
+wiki/multi_passage.db
+    table: passages; rows {id, lang, title, passage, PK (id, lang)}
+
+    id corresponds to monolingual id and language is the language of passage
+    searching BM25 returns id from monolingual database
+
+create table multi.passages (id, lang, title, passage, PRIMARY KEY (id, lang));
+
+inserting monolingual db into multilingual
+insert into multi.passages select * passages;
