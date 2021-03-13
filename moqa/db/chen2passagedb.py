@@ -32,7 +32,7 @@ spacy_lang = {
     "no"   : "nb_core_news_sm",
     "pl"   : "pl_core_news_sm",
     "pt"   : "pt_core_news_sm",
-    "ru"   : "ru_core_news_sm",
+#    "ru"   : "ru_core_news_sm",
     "es"   : "es_core_news_sm",
     # following are processed by multilingual model
     "multi": "xx_ent_wiki_sm",
@@ -40,14 +40,15 @@ spacy_lang = {
 
 parser = argparse.ArgumentParser(description='Convert chen_prep.db to passage.db')
 parser.add_argument('-l', '--lang', required=True, action='store', type=str)
-parser.add_argument('-c', '--chendb', required=True, action='store', type=str)
-parser.add_argument('-s', '--data-path', required=True, action='store', type=str)
+parser.add_argument('-c', '--chendb', action='store', type=str)
+parser.add_argument('-p', '--data-path', required=True, action='store', type=str)
 parser.add_argument('-d', '--dst', required=True, action='store', type=str)
-parser.add_argument('-s', '--strategy', default='wrap', required=True, action='store', type=str)
-parser.add_argument('--json', action='store_true', type=str)
-parser.add_argument('--dpr', action='store_true', type=str)
-parser.add_argument('--chen', action='store_true', type=str)
-parser.add_argument('--test', action='store_true')
+parser.add_argument('--json', action='store_true')
+parser.add_argument('--dpr', action='store_true')
+parser.add_argument('--chen', action='store_true')
+parser.add_argument('-s', '--strategy', default='wrap', action='store', type=str)
+parser.add_argument('-w', '--num-workers', default=int, action='store', type=int)
+parser.add_argument('--test', action='store', default=-1, type=int)
 
 
 def preprocess(article):
@@ -102,8 +103,15 @@ def get_contents(filename):
             # Skip if it is empty or None
             if not doc:
                 continue
-            splits = split_into_100words(doc['text'], nlp, strategy)
-            if splits is None:
+            splits = []
+            text = doc['text']
+            while len(text) > 1000000:
+                splits += split_into_100words(text[:1000000], nlp, strategy)
+                text = text[1000000:]
+
+            splits += split_into_100words(text, nlp, strategy)
+
+            if splits == []:
                 continue
             # Add the document
             for split in splits:
@@ -117,7 +125,7 @@ def split_into_100words(text, nlp, strategy='wrap'):
     processed = nlp(text.replace('\n\n', '\n'))
     if len(processed) < 50:
         # its likely this is disambiguation page
-        return None
+        return []
 
     splits = []
     start = processed[:100]

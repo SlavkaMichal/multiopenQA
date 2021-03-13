@@ -6,6 +6,6 @@ export WIKILANG='de'
 
 python scripts/build_db.py "data/wiki/${WIKILANG}/json" "data/wiki/${WIKILANG}/${WIKILANG}wiki_chenprep.db" --preprocess scripts/prep_wikipedia.py --num-workers 12
 
-python scripts/chen2passagedb.py --lang $WIKILANG --chendb "data/wiki/${WIKILANG}/${WIKILANG}wiki_chenprep.db" --dst "data/wiki/${WIKILANG}" --strategy wrap
+python -m moqa.db.chen2passagedb.py --lang $WIKILANG --chendb "data/wiki/${WIKILANG}/${WIKILANG}wiki_chenprep.db" --dst "data/wiki/${WIKILANG}" --strategy wrap
 
 `

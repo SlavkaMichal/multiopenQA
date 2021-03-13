@@ -9,10 +9,17 @@
 # - Keep tables. They're mostly garbage but can be removed later (remove "^!*").
 # - Remove disambiguation pages. Right now there is no use for them.
 
+WIKILANG=$1
+if [[ "$WIKILANG" == "" ]]; then
+  WIKILANG=$1
+fi
+
 if [[ "$WIKILANG" == "" ]]; then
   echo "WIKILANG not set"
   exit 1
 fi
+
+echo $WIKILANG
 
 INPUT=data/wiki/$WIKILANG/*.xml
 PROCESSES=12
