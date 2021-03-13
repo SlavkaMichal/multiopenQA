@@ -26,10 +26,9 @@ DB_PATH = "data/wiki/all_passage.db"  # (lang_id, title, passage)
 
 def main():
     # this is for testing
-    from moqa.generative.trainer import sample_cfg, Trainer
+    from moqa.generative.trainer import Trainer
     with PassageDB('data/wiki/demo.db') as db:
-        pprint.pprint(sample_cfg)
-        tokenizer = Trainer.init_tokenizer(sample_cfg)
+        tokenizer = Trainer.init_tokenizer('google/mt5-small', 'data/cache/transformers')
         data = MT5Dataset(datafile='data/mkqa/mkqa_dpr_da.jsonl',
                           tokenizer=tokenizer,
                           db_multi=db,
@@ -196,6 +195,7 @@ class MT5Dataset(Dataset):
             'id'         : RawField(),
             'question'   : RawField(),
             'answers'    : RawField(),
+            'lang'       : RawField(),
             'src'        : WORD_nested_field,
             'src_mask'   : PAD_nested_field,
             'doc_mask'   : MASK_nested_field,
@@ -363,6 +363,7 @@ class MT5Dataset(Dataset):
                     example = {
                         "id"       : sample["example_id"],
                         "question" : queries[lang],
+                        "lang"     : lang,
                         "answers"  : answer,
                         "sources"  : input_sequences,
                         "doc_masks": document_masks,
@@ -375,11 +376,9 @@ class MT5Dataset(Dataset):
 
 
 def debug():
-    from moqa.generative.trainer import sample_cfg, Trainer
     with PassageDB('../../data/wiki/demo.db') as db:
-        sample_cfg['transformers_cache'] = os.path.join('../..', sample_cfg['transformers_cache'])
-        pprint.pprint(sample_cfg)
-        tokenizer = Trainer.init_tokenizer(sample_cfg)
+        from moqa.generative import Trainer
+        tokenizer = Trainer.init_tokenizer('google/mt5-small', 'data/cache/transformers')
         data = MT5Dataset(datafile='../../data/mkqa/mkqa_dpr_da.jsonl',
                           tokenizer=tokenizer,
                           db_multi=db,

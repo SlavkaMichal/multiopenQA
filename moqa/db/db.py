@@ -4,7 +4,6 @@ author: Martin Fajcik, drqa's authors
 """
 import sqlite3
 from typing import AnyStr
-import logging
 import os
 
 class PassageDB:
@@ -14,6 +13,7 @@ class PassageDB:
             raise RuntimeError(f"Database file {db_path} does not exists!")
         self.path = db_path
         self.connection = sqlite3.connect(db_path, check_same_thread=False)
+        self._len = -1
 
     def __del__(self):
         # just in case
@@ -26,9 +26,11 @@ class PassageDB:
         self.close()
 
     def __len__(self):
-        cursor = self.connection.cursor()
-        logging.warning("Use len(db) cautiously. It takes long time!")
-        return cursor.execute('SELECT COUNT(*) FROM passages').fetchone()[0]
+        if self._len == -1:
+            cursor = self.connection.cursor()
+            self._len = cursor.execute('SELECT COUNT(*) FROM passages').fetchone()[0]
+
+        return self._len
 
     def __iter__(self):
         iterator = self.connection.cursor()

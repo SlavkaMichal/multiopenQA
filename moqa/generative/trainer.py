@@ -20,14 +20,15 @@ from moqa.common.model_utils import count_parameters, sum_parameters, report_par
 from moqa.common.utils import timestamp
 from moqa.common.eval_utils import metric_max_over_ground_truths, exact_match_score
 from moqa.generative.model import MT5QA
-from moqa.db.db import PassageDB
-from moqa.common import config
+from moqa.db import PassageDB
+from moqa.common import config as logging_cfg
 import logging
+from .types import TrainConfig
 
 logging.basicConfig(
     format=f"%(asctime)s:%(filename)s:%(lineno)d:%(levelname)s: %(message)s",
-    filename=config.log_file,
-    level=config.log_level)
+    filename=logging_cfg.log_file,
+    level=logging_cfg.log_level)
 
 
 def get_model(m):
@@ -37,23 +38,25 @@ def get_model(m):
 
 
 class Trainer:
-    def __init__(self, config: dict, device):
+    def __init__(self, config: TrainConfig, device):
         self.config = config
+        self.sched_config = config['sched_cfg']
+        self.optim_config = config['optim_cfg']
         self.device = device
-        self.best_em = config["save_threshold"]
+        self.best_em = config["save_em_threshold"]
         self.increase_validation_frequency = False
         # adding special tokens
-        self.tokenizer = self.init_tokenizer(config)
+        self.tokenizer = self.init_tokenizer(config['reader_tokenizer_type'], config['cache_transformers'])
 
-        self.db = PassageDB(db_path=self.config['pass_database'])
+        self.db = PassageDB(db_path=self.config['database'])
 
     @staticmethod
-    def init_tokenizer(config) -> PreTrainedTokenizer:
+    def init_tokenizer(tokenizer_type, cache_dir) -> PreTrainedTokenizer:
         """
         Creates tokenizer and add special tokens into it
         """
-        reader_tokenizer = AutoTokenizer.from_pretrained(config["reader_tokenizer_type"],
-                                                         cache_dir=config["transformers_cache"])
+        reader_tokenizer = AutoTokenizer.from_pretrained(tokenizer_type,
+                                                         cache_dir=cache_dir)
         reader_tokenizer.question_special_token = '<question>'
         reader_tokenizer.passage_special_token = '<passage>'
         reader_tokenizer.title_special_token = '<title>'
@@ -63,55 +66,42 @@ class Trainer:
         return reader_tokenizer
 
     def fit(self):
-        config = self.config
+        config: TrainConfig = self.config
 
         logging.debug(json.dumps(config, indent=4, sort_keys=True))
 
         include_passage_masks = config["fusion_strategy"] == "passages"
-        training_dataset = MT5Dataset
 
-        train = training_dataset(config["train_data"],
-                                 tokenizer=self.tokenizer,
-                                 database=self.db,
-                                 langs=config["languages"],
-                                 cache_dir=config["data_cache_dir"],
-                                 context_length=config["context_length"],
-                                 include_golden_passage=config["include_golden_passage_in_training"],
-                                 include_passage_masks=include_passage_masks,
-                                 preprocessing_truncation=config["preprocessing_truncation"],
-                                 one_answer_per_question=config.get("one_question_per_epoch", False),
-                                 use_only_human_answer=config.get("use_human_answer_only", False),
-                                 is_training=True)
-
-        val = training_dataset(config["val_data"],
-                               tokenizer=self.tokenizer,
-                               database=self.db,
-                               langs=config["languages"],
-                               cache_dir=config["data_cache_dir"],
-                               context_length=config["context_length"],
-                               include_passage_masks=include_passage_masks,
-                               preprocessing_truncation=config["preprocessing_truncation"],
-                               use_only_human_answer=config.get("use_human_answer_only", False),
-                               is_training=False)
+        data = MT5Dataset(config["data"],
+                          tokenizer=self.tokenizer,
+                          db_multi=self.db,
+                          langs=config["languages"],
+                          cache_dir=config["cache_data"],
+                          context_length=config["context_length"],
+                          include_golden_passage=config["include_golden_passage"],
+                          include_passage_masks=include_passage_masks,
+                          preprocessing_truncation=config["preprocessing_truncation"],
+                          # use_only_human_answer=config.get("use_human_answer_only", False),
+                          is_training=True)
+        splits = data.split(split_ratio=config['split_ratio'], stratified=True, strata_field='lang')
+        if len(splits) == 3:
+            train = splits[0]
+            val = splits[1]
+            test = splits[2]
+        else:
+            train = splits[0]
+            val = splits[1]
+            test = None
 
         logging.info("Loading model...")
-        model = torch.load(config["model"], map_location=self.device) \
-            if "model" in config \
+        model = torch.load(config["pretrained_model"], map_location=self.device) \
+            if config["pretrained_model"] is not None \
             else MT5QA.from_pretrained().to(self.device)
-
-        test = training_dataset(config["test_data"],
-                                tokenizer=self.tokenizer,
-                                database=self.db,
-                                langs=config["languages"],
-                                cache_dir=config["data_cache_dir"],
-                                context_length=self.config["context_length"],
-                                include_passage_masks=include_passage_masks,
-                                preprocessing_truncation=self.config["preprocessing_truncation"],
-                                is_training=False)
 
         logging.info(f"Training data examples:{len(train)}")
         logging.info(f"Validation data examples:{len(val)}")
-        logging.info(f"Test data examples {len(test)}")
+        if test is not None:
+            logging.info(f"Test data examples {len(test)}")
 
         train_iter = Iterator(train,
                               shuffle=True,
@@ -125,10 +115,14 @@ class Trainer:
                             shuffle=False,
                             batch_size=1,
                             repeat=False, device=self.device)
-        test_iter = Iterator(test,
-                             sort=False, shuffle=False,
-                             batch_size=1,
-                             repeat=False, device=self.device)
+
+        if test is not None:
+            test_iter = Iterator(test,
+                                 sort=False, shuffle=False,
+                                 batch_size=1,
+                                 repeat=False, device=self.device)
+        else:
+            test_iter = None
 
         logging.info(f"Resizing token embeddings to length {len(self.tokenizer)}")
         model.resize_token_embeddings(len(self.tokenizer))
@@ -145,30 +139,27 @@ class Trainer:
         optimizer_grouped_parameters = [
             {
                 "params"      : [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-                "weight_decay": self.config["weight_decay"],
+                "weight_decay": self.optim_config["weight_decay"],
                 },
             {
                 "params"      : [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
                 "weight_decay": 0.0
                 }, ]
         # Optimizer setup
-        if config["optimizer"] == "adamw":
+        if self.optim_config["optimizer"] == "adamw":
             optimizer = AdamW
-        elif config["optimizer"] == "adam":
+        elif self.optim_config["optimizer"] == "adam":
             optimizer = Adam
         else:
             raise ValueError("Unsupported optimizer")
         optimizer = optimizer(optimizer_grouped_parameters,
-                              lr=self.config["learning_rate"],
-                              eps=self.config["adam_eps"])
+                              lr=self.optim_config["learning_rate"],
+                              eps=self.optim_config["adam_eps"])
 
-        if config.get("resume_checkpoint", False):
-            optimizer.load_state_dict(model.optimizer_state_dict)
-
-            # Init scheduler
-        if "scheduler_warmup_steps" in self.config:
+        # Init scheduler
+        if self.sched_config["scheduler_warmup_steps"] > 0:
             t_total = self.config["max_steps"]
-            warmup_steps = self.config["scheduler_warmup_steps"]
+            warmup_steps = self.sched_config["scheduler_warmup_steps"]
             scheduler = self.init_scheduler(
                 optimizer,
                 num_warmup_steps=warmup_steps,
@@ -185,6 +176,7 @@ class Trainer:
             while get_model(model).training_steps < self.config["max_steps"]:
                 logging.info(f"Epoch {it}")
                 train_loss = self.train_epoch(model=model,
+                                              epoch=it,
                                               data_iter=train_iter,
                                               val_iter=val_iter,
                                               optimizer=optimizer,
@@ -200,8 +192,9 @@ class Trainer:
                 logging.info(f"Loading best checkpoint {self.best_ckpt_name}")
                 model = torch.load(self.best_ckpt_name, map_location=self.device)
         logging.info("#" * 50)
-        logging.info("Validating on the test data")
-        self.validate(model, test_iter)
+        if test is not None:
+            logging.info("Validating on the test data")
+            self.validate(model, test_iter)
 
         # best_em = 0
         # result = {"em": best_em}
@@ -230,20 +223,20 @@ class Trainer:
             for group in optimizer.param_groups:
                 group.setdefault('initial_lr', group['lr'])
 
-        if self.config["scheduler"] == "linear":
+        if self.sched_config["scheduler"] == "linear":
             scheduler = transformers.get_linear_schedule_with_warmup(
                 optimizer=optimizer,
                 num_warmup_steps=num_warmup_steps,
                 num_training_steps=num_training_steps,
                 last_epoch=last_step)
-        elif self.config["scheduler"] == "cosine":
+        elif self.sched_config["scheduler"] == "cosine":
             scheduler = transformers.get_cosine_schedule_with_warmup(
                 optimizer=optimizer,
                 num_warmup_steps=num_warmup_steps,
                 num_training_steps=num_training_steps,
                 num_cycles=0.5,
                 last_epoch=last_step)
-        elif self.config["scheduler"] == "constant":
+        elif self.sched_config["scheduler"] == "constant":
             scheduler = transformers.get_constant_schedule_with_warmup(
                 optimizer=optimizer,
                 num_warmup_steps=num_warmup_steps,
@@ -255,6 +248,7 @@ class Trainer:
 
     def train_epoch(self,
                     model: MT5QA,
+                    epoch: int,
                     data_iter: Iterator,
                     val_iter: Iterator,
                     optimizer: Optimizer,
@@ -280,12 +274,6 @@ class Trainer:
         total_losses = []
         losses_per_update = []
 
-        # If we use fp16, gradients must be scaled
-        grad_scaler = None
-        if self.config["fp16"]:
-            # noinspection PyUnresolvedReferences
-            grad_scaler = torch.cuda.amp.GradScaler()
-
         for i, batch in it:
             assert len(batch.src) == 1  # more  than 1 example per batch is unsupported
 
@@ -306,70 +294,41 @@ class Trainer:
                 # doc_mask in zip(batch.src,batch.doc_mask)]
                 # target =[" ".join(self.tokenizer.convert_ids_to_tokens(target)) for target in batch.target]
 
-                if self.config["fp16"]:
-                    # noinspection PyUnresolvedReferences
-                    with torch.cuda.amp.autocast():
-                        outputs = model(input_ids=batch.src, attention_mask=batch.src_mask,
-                                        passage_mask=batch.doc_mask,
-                                        decoder_input_ids=batch.target[:, :-1].contiguous(),
-                                        decoder_attention_mask=batch.target_mask[:, :-1].contiguous(),
-                                        use_cache=False)
-                        lm_logits = outputs[0]
-                        labels = batch.target[:, 1:].reshape(-1)
+                outputs = model(input_ids=batch.src, attention_mask=batch.src_mask,
+                                passage_mask=batch.doc_mask,
+                                decoder_input_ids=batch.target[:, :-1].contiguous(),
+                                decoder_attention_mask=batch.target_mask[:, :-1].contiguous(),
+                                use_cache=False)
+                lm_logits = outputs[0]
+                labels = batch.target[:, 1:].reshape(-1)
 
-                        # Adjust update ratio for last update if needed
-                        if (total - i) < update_ratio and not adjusted_for_last_update:
-                            update_ratio = (total - i)
-                            adjusted_for_last_update = True
+                # Adjust update ratio for last update if needed
+                if (total - i) < update_ratio and not adjusted_for_last_update:
+                    update_ratio = (total - i)
+                    adjusted_for_last_update = True
 
-                        # Compute loss
-                        losses = F.cross_entropy(lm_logits.view(-1, get_model(model).config.vocab_size), labels,
-                                                 reduction='none')
-                        loss = losses.mean()
-                        loss /= update_ratio
-                    grad_scaler.scale(loss).backward()
-                else:
-                    outputs = model(input_ids=batch.src, attention_mask=batch.src_mask,
-                                    passage_mask=batch.doc_mask,
-                                    decoder_input_ids=batch.target[:, :-1].contiguous(),
-                                    decoder_attention_mask=batch.target_mask[:, :-1].contiguous(),
-                                    use_cache=False)
-                    lm_logits = outputs[0]
-                    labels = batch.target[:, 1:].reshape(-1)
-
-                    # Adjust update ratio for last update if needed
-                    if (total - i) < update_ratio and not adjusted_for_last_update:
-                        update_ratio = (total - i)
-                        adjusted_for_last_update = True
-
-                    losses = F.cross_entropy(lm_logits.view(-1, get_model(model).config.vocab_size), labels,
-                                             reduction='none')
-                    loss = losses.mean()
-                    loss /= update_ratio
-                    loss.backward()
+                losses = F.cross_entropy(lm_logits.view(-1, get_model(model).config.vocab_size), labels,
+                                         reduction='none')
+                loss = losses.mean()
+                loss /= update_ratio
+                loss.backward()
 
                 # record losses to list
                 losses_per_update.append(loss.item())
                 if len(losses_per_update) == update_ratio and not adjusted_for_last_update:
                     # grad clipping should be applied to unscaled gradients
-                    if self.config["fp16"]:
-                        grad_scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
-                                                   self.config["max_grad_norm"])
+                                                   self.optim_config["max_grad_norm"])
                     # compute training loss
                     loss_per_update = sum(losses_per_update) / len(losses_per_update)
                     total_losses += losses_per_update
                     losses_per_update = []
 
-                    if self.config["fp16"]:
-                        grad_scaler.step(optimizer)
-                        grad_scaler.update()
-                    else:
-                        optimizer.step()
+                    optimizer.step()
                     optimizer.zero_grad()
                     get_model(model).training_steps += 1
                     if scheduler is not None:
-                        scheduler.step()
+                        scheduler.step(epoch=epoch)
                     updated = True
                     # If we are past 2/3 of expected training steps
                     if get_model(model).training_steps > (2 * self.config["max_steps"] / 3) and \
@@ -384,7 +343,7 @@ class Trainer:
 
                     # Validate after every validate_after_steps steps
                     if get_model(model).training_steps > 1 and \
-                       get_model(model).training_steps % self.config["validate_after_steps"] == 0:
+                            get_model(model).training_steps % self.config["validate_after_steps"] == 0:
                         self.validate(model, val_iter, optimizer_dict=optimizer.state_dict())
             # Catch out-of-memory errors
             except RuntimeError as e:
@@ -401,19 +360,13 @@ class Trainer:
                     raise e
         if not updated:
             # Do the last step if needed
-            if self.config["fp16"]:
-                grad_scaler.unscale_(optimizer)
             torch.nn.utils.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
-                                           self.config["max_grad_norm"])
-            if self.config["fp16"]:
-                grad_scaler.step(optimizer)
-                grad_scaler.update()
-            else:
-                optimizer.step()
+                                           self.optim_config["max_grad_norm"])
+            optimizer.step()
             optimizer.zero_grad()
             get_model(model).training_steps += 1
             if scheduler is not None:
-                scheduler.step()
+                scheduler.step(epoch=epoch)
             updated = True
 
         # Validate after epoch
@@ -495,83 +448,3 @@ class Trainer:
             torch.save(saveable_model, saved_name)
             model = model.train()
         return EM
-
-
-sample_cfg = {
-    "reader_tokenizer_type"             : "google/mt5-small",
-    "reader_transformer_type"           : "google/mt5-small",
-    "reader_max_input_length"           : 250,
-    # Available fusion strategies
-    # "allinputs" (considers only passage embeddings in the decoder),
-    # "passages" (considers only passage embeddings in the decoder)
-    # strategy allinputs works slightly better (+ ~0.15 EM)
-    "fusion_strategy"                   : "allinputs",
-
-    "save_dir"                          : ".saved",  # where the checkpoints will be saved
-    "results"                           : ".results",  # where validation results will be saved
-
-    "test_only"                         : True,
-    "validation_batch_size"             : 1,
-    "validate_after_steps"              : 500,
-
-    # "pre_initialize": True,
-    # "pretrained_reader_model": ".saved/generative_reader_EM0.4294_S3555_Mt5-base_2020-12-25_00:42_supergpu7.fit
-    # .vutbr.cz",
-    ###############################
-    # Data
-    ###############################
-    "train_data"                        : "data/reader/ranked/NQ-open_TRAINING_maxlen_5_ms_with_dpr_annotation"
-                                          ".jsonl_dpr_official_nqsingle_of_impossible.jsonl",
-    "val_data"                          : "data/reader/ranked/NQ-open_DEV_maxlen_5_ms_with_dpr_annotation"
-                                          ".json_dpr_official_nqsingle_of_impossible.jsonl",
-    "test_data"                         :
-        "data/reader/ranked/NQ-open_TEST.jsonl_nq-open_dpr_official_nqsingle_of_impossible.jsonl",
-    "pass_database"                     : "data/db/wiki2018_dpr_blocks.db",  # database of passages and titles
-    ###############################
-    # Optimization hyper-parameters
-    ###############################
-    # Parameters used in efficientQA
-    "learning_rate"                     : 1e-4,
-    "adam_eps"                          : 1e-06,
-    "batch_size"                        : 1,
-    "true_batch_size"                   : 64,
-    "max_grad_norm"                     : 1.,
-    "weight_decay"                      : 1e-5,
-    "hidden_dropout"                    : 0.1,
-    "attention_dropout"                 : 0.1,
-
-    "include_golden_passage_in_training": False,
-
-    "optimizer"                         : "adam",  # adam, adamw
-    "scheduler"                         : None,  # "linear",  # None, linear, cosine, constant
-    # "scheduler_warmup_steps": 600,
-    # "scheduler_training_steps": 14_400,
-
-    "lookahead_optimizer"               : False,
-    # "lookahead_K": 10,
-    # "lookahead_alpha": 0.5,
-
-    ###############################
-    # Miscellaneous options
-    ###############################
-    # if training has been discontinued, it can be resumed
-    "resume_training"                   : False,
-    # "resume_checkpoint": ".saved/generative_reader_EM0.4561_S4500_Mt5-large_2020-11-26_20:38_supergpu7.fit.vutbr.cz",
-
-    # maximum number of training steps
-    "max_steps"                         : 10_000,  # on resuming the resumed update steps are counted too
-    "save_threshold"                    : 0.41,  # save up some disk space
-
-    # cache where the transformers library will save the models
-    "transformers_cache"                : "data/cache/Transformers",
-    "data_cache_dir"                    : "data/cache/data",
-
-    "dataset"                           : "nq",
-
-    # number of passages encoded from mini-batch
-    #   for training dataset there is always the ground truth passage and the rest is filled with the others
-    #   recommended by retriever
-    #   for validation dataset only the passages from retriever are used
-    "context_length"                    : 25,
-    "fp16"                              : False,  # currently does not work for T5
-    }
