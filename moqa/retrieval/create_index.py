@@ -29,7 +29,7 @@ def create_index(args):
     with PassageDB(db_path) as db:
         indexer = Indexer(args.lang, db, args.lang, index_dir=args.index_dir, ram_size=8 * 1024)
         indexer.createIndex()
-    logging.info(f"Index for {db.path} was created!")
+    logging.info(f"Index for {db.path} was created in {indexer.idx_dir}!")
 
 
 def test_index(args):
@@ -56,11 +56,8 @@ def test_index(args):
 
 if __name__ == "__main__":
     arguments = parser.parse_args()
-    print("here")
     print(arguments)
     if arguments.test:
         test_index(arguments)
-        print("was here")
     else:
         create_index(arguments)
-        print("wwwas here")

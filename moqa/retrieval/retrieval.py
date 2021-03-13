@@ -121,13 +121,13 @@ class Indexer(Retriever):
         super().__init__()
         lucene.initVM(vmargs=['-Djava.awt.headless=true'])
 
-        idx_dir = self.get_index_name(lang, index_dir)
-        logging.info(f"Creating index in {idx_dir}!")
+        self.idx_dir = self.get_index_name(lang, index_dir)
+        logging.info(f"Creating index in {self.idx_dir}!")
 
         self.db = db
 
         # stores index files, poor concurency try NIOFSDirectory instead
-        store = SimpleFSDirectory(Paths.get(idx_dir))
+        store = SimpleFSDirectory(Paths.get(self.idx_dir))
         # limit max. number of tokens per document.
         # analyzer will not consume more tokens than that
         # analyzer = LimitTokenCountAnalyzer(analyzer, 1048576)

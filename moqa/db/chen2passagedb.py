@@ -44,6 +44,9 @@ parser.add_argument('-c', '--chendb', required=True, action='store', type=str)
 parser.add_argument('-s', '--data-path', required=True, action='store', type=str)
 parser.add_argument('-d', '--dst', required=True, action='store', type=str)
 parser.add_argument('-s', '--strategy', default='wrap', required=True, action='store', type=str)
+parser.add_argument('--json', action='store_true', type=str)
+parser.add_argument('--dpr', action='store_true', type=str)
+parser.add_argument('--chen', action='store_true', type=str)
 parser.add_argument('--test', action='store_true')
 
 
@@ -142,11 +145,10 @@ def split_into_100words(text, nlp, strategy='wrap'):
     return splits
 
 
-def from_json():
+def from_json(args):
     global nlp
     global strategy
 
-    args = parser.parse_args()
     if args.lang in spacy_lang:
         nlp = spacy.load(spacy_lang[args.lang])
     else:
@@ -189,8 +191,7 @@ def from_json():
     conn.close()
 
 
-def main():
-    args = parser.parse_args()
+def from_chen(args):
     if args.lang in spacy_lang:
         nlp = spacy.load(spacy_lang[args.lang])
     else:
@@ -227,6 +228,49 @@ def main():
     conn.close()
 
 
+def from_dpr(args):
+    data_path = 'data/wiki/en/psgs_w100.tsv'
+    if args.data_path:
+        data_path = args.data_path
+
+    save_path = 'data/wiki/en/en_passage.db'
+    if args.dst:
+        save_path = args.dst
+
+    if os.path.isfile(save_path):
+        raise RuntimeError('%s already exists! Not overwriting.' % save_path)
+
+    logger.info('Reading into database...')
+    conn = sqlite3.connect(save_path)
+    passage_db = conn.cursor()
+    passage_db.execute("CREATE TABLE passages (id, lang, title, passage, PRIMARY KEY (id, lang));")
+
+    count = 0
+    with open(data_path) as fp:
+        id, text, title = tuple(fp.readline().strip().split('\t'))
+        assert id == "id"
+        assert text == "text"
+        assert title == "title"
+        for line in fp:
+            count += 1
+            id, text, title = tuple(line.strip().split('\t'))
+            passage_db.execute("INSERT INTO passages (id, lang, title, passage) VALUES (?,?,?,?)",
+                               (id, 'en', title, text[1:-1].replace('""', '"')))
+            if count == args.test:
+                break
+    logger.info('Read %d docs.' % count)
+    logger.info('Committing...')
+    conn.commit()
+    conn.close()
+
+
 if __name__ == "__main__":
-    # main()
-    from_json()
+    args = parser.parse_args()
+    if args.json:
+        from_json(args)
+    elif args.chen:
+        from_chen(args)
+    elif args.dpr:
+        from_dpr(args)
+    else:
+        raise ValueError("Missing option: --json or --chen or --dpr!")
