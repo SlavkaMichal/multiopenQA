@@ -5,10 +5,10 @@ import time
 import pprint
 
 from jsonlines import jsonlines
-from torchtext.data import Dataset, Field, RawField, Example, NestedField
+from torchtext.legacy.data import Dataset, Field, RawField, Example, NestedField
 from tqdm import tqdm
 from transformers import PreTrainedTokenizer, MT5Tokenizer, MT5TokenizerFast
-from torchtext.data import Iterator
+from torchtext.legacy.data import Iterator
 from typing import List, Tuple, Dict, AnyStr, Optional
 
 from moqa.db import PassageDB

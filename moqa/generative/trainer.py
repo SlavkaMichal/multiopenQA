@@ -10,7 +10,7 @@ import transformers
 from torch.nn import DataParallel
 from torch.optim import Optimizer, Adam, AdamW
 from torch.optim.lr_scheduler import LambdaLR
-from torchtext.data import Iterator
+from torchtext.legacy.data import Iterator
 from tqdm import tqdm
 from transformers import AutoTokenizer, PreTrainedTokenizer
 from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions, Seq2SeqLMOutput
