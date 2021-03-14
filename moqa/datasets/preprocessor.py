@@ -1,5 +1,5 @@
 import jsonlines as jl
-from typing import List, Dict, AnyStr
+from typing import List, Dict, AnyStr, Union
 from moqa.common import config
 import os
 from moqa.retrieval import Searcher, Retriever
@@ -32,8 +32,8 @@ def main():
 
 class MKQAPrep():
     def __init__(self,
-                 lang_idx: Dict[str, AnyStr],
-                 topk=10,
+                 lang_idx: Union[List[str],Dict[str, AnyStr]],
+                 topk=20,
                  mkqa_path=MKQA,
                  spacy_only=True,
                  with_nq=False,
@@ -84,7 +84,7 @@ class MKQAPrep():
     def preprocess(self, write: bool = False, data_file=None, test=-1) -> List[Dict]:
         if not self.langs and self.spacy_only:
             raise NotImplementedError("Spacy only is not implemented and won't be")
-            #self.langs = [info['lang'] for info in return_true('spacy', True)]
+            # self.langs = [info['lang'] for info in return_true('spacy', True)]
 
         # crate searcher
         searcher = Searcher()

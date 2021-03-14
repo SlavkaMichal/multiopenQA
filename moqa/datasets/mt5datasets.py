@@ -13,7 +13,7 @@ from typing import List, Tuple, Dict, AnyStr, Optional
 
 from moqa.db import PassageDB
 from moqa.common import config
-from moqa.datasets import MKQAPrep
+from moqa.datasets.preprocessor import MKQAPrep
 import logging
 
 logging.basicConfig(
