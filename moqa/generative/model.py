@@ -25,7 +25,6 @@ class MT5QA(T5PreTrainedModel):
     def __init__(self, config: MT5Config):
         super().__init__(config)
         self.model_dim = config.d_model
-        self.root = utils.get_root()
 
         self.shared = nn.Embedding(config.vocab_size, config.d_model)
 
@@ -51,13 +50,14 @@ class MT5QA(T5PreTrainedModel):
 
     @classmethod
     def from_pretrained(cls, config, **kwargs):
-        cfg = MT5Config.from_pretrained(config['google/mt5-small'], cache_dir=config['cache_transformers'])
-        cfg.attention_probs_dropout_prob = config['optim_cfg']["attention_dropout"] # optim
-        cfg.hidden_dropout_prob = config['optim_cfg']["hidden_dropout"] # optim
-        cfg.fusion_strategy = config['optim_cfg']["fusion_strategy"] # config
+        cfg = MT5Config.from_pretrained(config['reader_transformer_type'], cache_dir=config['cache_transformers'],
+                                        tie_word_embeddings=True)
+        cfg.attention_probs_dropout_prob = config['optim_cfg']["attention_dropout"]  # optim
+        cfg.hidden_dropout_prob = config['optim_cfg']["hidden_dropout"]  # optim
+        cfg.fusion_strategy = config["fusion_strategy"]  # config
         cfg.custom_config = config['fusion_strategy']
         return super(MT5QA, cls).from_pretrained(
-            'google/mt5-small', config=cfg, cache_dir=config['cache_transformers'], **kwargs)
+            config['reader_transformer_type'], config=cfg, cache_dir=config['cache_transformers'], **kwargs)
 
     def get_input_embeddings(self):
         return self.shared
