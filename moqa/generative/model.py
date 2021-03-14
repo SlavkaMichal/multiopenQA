@@ -50,15 +50,14 @@ class MT5QA(T5PreTrainedModel):
         self.device_map = None
 
     @classmethod
-    def from_pretrained(cls, **kwargs):
-        cache_dir = os.path.join(utils.get_root(), '.transformer')
-        cfg = MT5Config.from_pretrained('google/mt5-small', cache_dir=cache_dir)
-        # cfg.attention_probs_dropout_prob = config["attention_dropout"]
-        # cfg.hidden_dropout_prob = config["hidden_dropout"]
-        # cfg.fusion_strategy = config["fusion_strategy"]
-        # cfg.custom_config = config
+    def from_pretrained(cls, config, **kwargs):
+        cfg = MT5Config.from_pretrained(config['google/mt5-small'], cache_dir=config['cache_transformers'])
+        cfg.attention_probs_dropout_prob = config['optim_cfg']["attention_dropout"] # optim
+        cfg.hidden_dropout_prob = config['optim_cfg']["hidden_dropout"] # optim
+        cfg.fusion_strategy = config['optim_cfg']["fusion_strategy"] # config
+        cfg.custom_config = config['fusion_strategy']
         return super(MT5QA, cls).from_pretrained(
-            'google/mt5-small', config=cfg, cache_dir=cache_dir, **kwargs)
+            'google/mt5-small', config=cfg, cache_dir=config['cache_transformers'], **kwargs)
 
     def get_input_embeddings(self):
         return self.shared

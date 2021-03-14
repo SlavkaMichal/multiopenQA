@@ -138,7 +138,9 @@ class MT5Dataset(Dataset):
     def load_iterable(fields, raw_examples, include_passage_masks=False):
         fields = list(fields.items())
         examples = []
-        for e in tqdm(raw_examples, desc="Loading preprocessed data..."):
+        for i, e in tqdm(enumerate(raw_examples), desc="Loading preprocessed data..."):
+            if i % 6 == 0:
+                continue
             example = MT5Dataset.torchtext_example(e, fields, include_passage_masks)
             examples.append(example)
         return examples

@@ -98,7 +98,7 @@ class Trainer:
         logging.info("Loading model...")
         model = torch.load(config["pretrained_model"], map_location=self.device) \
             if config["pretrained_model"] is not None \
-            else MT5QA.from_pretrained().to(self.device)
+            else MT5QA.from_pretrained(config).to(self.device)
 
         logging.info(f"Training data examples:{len(train)}")
         logging.info(f"Validation data examples:{len(val)}")
