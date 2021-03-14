@@ -32,10 +32,10 @@ def main():
 
 class MKQAPrep():
     def __init__(self,
-                 lang_idx: Union[List[str],Dict[str, AnyStr]],
+                 lang_idx: Union[List[str], Dict[str, AnyStr]],
                  topk=20,
                  mkqa_path=MKQA,
-                 spacy_only=True,
+                 spacy_only=False,
                  with_nq=False,
                  with_translated_positive_ctx=False,
                  search_with_title=False,
@@ -101,7 +101,7 @@ class MKQAPrep():
             logging.info(f"Not saving data!")
 
         samples = []
-        len = 1000 if test == -1 else test
+        len = 10000 if test == -1 else test
         with tqdm(total=len, desc="Preprocessing MKQA") as pbar, jl.open(self.mkqa_path) as mkqa:
             found_in_dpr_map = 0
             skipping = 0

@@ -58,7 +58,11 @@ class PassageDB:
         if lang is None:
             cursor.execute(f"SELECT {columns} FROM passages WHERE id = ?", (doc_id,))
         else:
-            cursor.execute(f"SELECT {columns} FROM passages WHERE id = ? AND lang = ?", (doc_id, lang))
+            if lang == 'en':
+                # TODO This is quick fix doc_id should be Integer but was errously inserted as string
+                cursor.execute(f"SELECT {columns} FROM passages WHERE id = ? AND lang = ?", (str(doc_id), lang))
+            else:
+                cursor.execute(f"SELECT {columns} FROM passages WHERE id = ? AND lang = ?", (doc_id, lang))
 
         result = cursor.fetchone()
         cursor.close()

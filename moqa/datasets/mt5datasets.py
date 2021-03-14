@@ -331,15 +331,25 @@ class MT5Dataset(Dataset):
             top_k_passages_raw = [golden_passage]
 
         # take rest of the passages as top-k, if available
+        lang_tally = { }
+        number_of_contexts = len(sample['retrieval']) * self.context_size
         for neg_ind in sorted(sample['retrieval'], key=lambda x: x['score'], reverse=True):
             idx: int = neg_ind['id']
             lang: str = neg_ind['lang']
-            if len(top_k_passages_tokens) == self.context_size:
+
+            if len(top_k_passages_tokens) == number_of_contexts:
                 break
+
             # if passage is already included (e.g. gt during training)
             elif (idx, lang) in selected_ids:
                 continue
             else:
+                if lang in lang_tally:
+                    lang_tally[lang] += 1
+                else:
+                    lang_tally[lang] = 1
+                if lang_tally[lang] > self.context_size:
+                    continue
                 selected_ids.append((idx, lang))
                 title, passage = self.db_multi.get_doc_text(idx, lang, columns=["title", "passage"])
 
@@ -355,8 +365,8 @@ class MT5Dataset(Dataset):
                 top_k_passages_tokens.append(tokenized_passage)
                 top_k_passages_raw.append(passage)
 
-        assert len(top_k_passages_tokens) == self.context_size, \
-            f"Passages: {len(top_k_passages_tokens)}, Context size: {self.context_size}"
+        assert len(top_k_passages_tokens) == number_of_contexts, \
+            f"Passages: {len(top_k_passages_tokens)}, Context size: {number_of_contexts}"
 
         queries = sample['queries']
         answers = sample['answers']

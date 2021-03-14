@@ -87,12 +87,12 @@ analyzers = {
 class Retriever(object):
     def __init__(self, k1=None, b=None):
         if k1 is None:
-            self.k1=1.8
+            self.k1 = 1.8  # 0.91
         else:
             self.k1=k1
 
         if b == None:
-            self.b=0.1
+            self.b = 0.1  # 0.22
         else:
             self.b=b
 
