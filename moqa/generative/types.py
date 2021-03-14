@@ -46,6 +46,7 @@ class TrainConfig(TypedDict):
     true_batch_size: int
 
     data: str
+    preprocess: bool
     cache_data: str
     split_ratio: Union[float, List[float]]
     database: str

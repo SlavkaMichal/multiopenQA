@@ -75,6 +75,7 @@ class Trainer:
         data = MT5Dataset(config["data"],
                           tokenizer=self.tokenizer,
                           db_multi=self.db,
+                          preprocess=config["preprocess"],
                           langs=config["languages"],
                           cache_dir=config["cache_data"],
                           context_length=config["context_length"],

@@ -80,6 +80,7 @@ config: TrainConfig = {
     'true_batch_size'         : 64,
 
     'data'                    : 'data/mkqa/mkqa.jsonl',
+    'preprocess'              : True,
     'cache_data'              : 'data/cache/data',
     'split_ratio'             : [0.7, 0.25],
     'database'                : 'data/wiki/multi_passage.db',
@@ -90,9 +91,9 @@ config: TrainConfig = {
     }
 
 if __name__ == "__main__":
-    os.mkdir(config["save_dir"])
-    os.mkdir(config["results"])
-    os.mkdir(config["cache_data"])
+    #os.mkdir(config["save_dir"])
+    #os.mkdir(config["results"])
+    #os.mkdir(config["cache_data"])
 
     seed = randint(0, 10_000)
     random.seed(seed)

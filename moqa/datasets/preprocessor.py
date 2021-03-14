@@ -3,7 +3,6 @@ from typing import List, Dict, AnyStr
 from moqa.common import config
 import os
 from moqa.retrieval import Searcher, Retriever
-from moqa.datasets import return_true
 import logging
 from tqdm import tqdm
 
@@ -84,7 +83,8 @@ class MKQAPrep():
 
     def preprocess(self, write: bool = False, data_file=None, test=-1) -> List[Dict]:
         if not self.langs and self.spacy_only:
-            self.langs = [info['lang'] for info in return_true('spacy', True)]
+            raise NotImplementedError("Spacy only is not implemented and won't be")
+            #self.langs = [info['lang'] for info in return_true('spacy', True)]
 
         # crate searcher
         searcher = Searcher()

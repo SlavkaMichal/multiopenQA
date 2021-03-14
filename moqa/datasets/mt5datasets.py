@@ -13,6 +13,7 @@ from typing import List, Tuple, Dict, AnyStr, Optional
 
 from moqa.db import PassageDB
 from moqa.common import config
+from moqa.datasets import MKQAPrep
 import logging
 
 logging.basicConfig(
@@ -45,6 +46,7 @@ def main():
 class MT5Dataset(Dataset):
     def __init__(self,
                  datafile: AnyStr,
+                 preprocess,
                  tokenizer: PreTrainedTokenizer,
                  db_multi: PassageDB,
                  langs: List[str],
@@ -61,6 +63,7 @@ class MT5Dataset(Dataset):
         self.langs = langs
         self.cache_dir = cache_dir
         self.datafile = datafile
+        self.preprocess = preprocess
         self.tokenizer = tokenizer
         self.db_multi = db_multi
         self.max_len = tokenizer.model_max_length if max_len is None else max_len
@@ -154,12 +157,12 @@ class MT5Dataset(Dataset):
         return example
 
     def get_example_list(self):
-        with open(self.datafile, encoding="utf-8") as f:
-            num_lines = sum(1 for _ in f)
 
         examples = []
-        with jsonlines.open(self.datafile) as fp:
-            for idx, sample in tqdm(enumerate(fp), total=num_lines):  # TODO: parallelize?
+        if self.preprocess:
+            preprocessor = MKQAPrep(self.langs, topk=20)
+            preprocessed = preprocessor.preprocess(write=True)
+            for idx, sample in tqdm(enumerate(preprocessed), total=len(preprocessed)):  # TODO: parallelize?
                 if self.is_training:
                     examples += self.process_sample(sample)
                 else:
@@ -181,6 +184,32 @@ class MT5Dataset(Dataset):
                         target_example = " ".join(self.tokenizer.convert_ids_to_tokens(possible_target))
                         logging.info("target:")
                         logging.info(target_example)
+        else:
+            with open(self.datafile, encoding="utf-8") as f:
+                num_lines = sum(1 for _ in f)
+            with jsonlines.open(self.datafile) as fp:
+                for idx, sample in tqdm(enumerate(fp), total=num_lines):  # TODO: parallelize?
+                    if self.is_training:
+                        examples += self.process_sample(sample)
+                    else:
+                        # Do not use same question with multiple answers in validation
+                        examples += [self.process_sample(sample)[0]]
+
+                    if idx == 0:
+                        logging.info("Example of input formats:")
+                        src_example1 = " ".join(self.tokenizer.convert_ids_to_tokens(examples[0]["sources"][0]))
+                        src_example2 = " ".join(self.tokenizer.convert_ids_to_tokens(examples[0]["sources"][1]))
+                        logging.info("inputs 1:")
+                        logging.info(src_example1)
+                        logging.info("inputs 2:")
+                        logging.info(src_example2)
+                        if len(examples[0]["target"]) > 1:
+                            possible_target = examples[0]["target"]
+                            if type(possible_target) == list:
+                                possible_target = possible_target[0]
+                            target_example = " ".join(self.tokenizer.convert_ids_to_tokens(possible_target))
+                            logging.info("target:")
+                            logging.info(target_example)
 
         return examples
 
