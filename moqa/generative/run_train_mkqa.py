@@ -17,16 +17,16 @@ logging.basicConfig(
 
 languages = [
     "ar",
-    "bn",
+#    "bn",
     "da",
     "de",
     "es",
     "en",
     "fi",
     "fr",
-    "hi",
+#    "hi",
     "hu",
-    "id",
+#    "id",
     "it",
     "ja",
     "ko",
@@ -79,12 +79,12 @@ config: TrainConfig = {
     'batch_size'              : 1,
     'true_batch_size'         : 64,
 
-    'data'                    : 'data/mkqa/mkqa.jsonl',
-    'preprocess'              : True,
+    'data'                    : 'data/mkqa/mkqa_dpr_spacy_only.jsonl',
+    'preprocess'              : False,
     'cache_data'              : 'data/cache/data',
     'split_ratio'             : [0.7, 0.25],
     'database'                : 'data/wiki/multi_passage.db',
-    'context_length'          : 25,
+    'context_length'          : 2, # this is per language
 
     'optim_cfg'               : optimizer_config,
     'sched_cfg'               : scheduler_config

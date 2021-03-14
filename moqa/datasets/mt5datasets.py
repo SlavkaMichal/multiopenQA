@@ -160,9 +160,12 @@ class MT5Dataset(Dataset):
 
         examples = []
         if self.preprocess:
+            logging.info("Preprocessing data from MKQA...")
             preprocessor = MKQAPrep(self.langs, topk=20)
             preprocessed = preprocessor.preprocess(write=True)
-            for idx, sample in tqdm(enumerate(preprocessed), total=len(preprocessed)):  # TODO: parallelize?
+            logging.info("Processing samples...")
+            for idx, sample in tqdm(enumerate(preprocessed), desc="Processing samples",
+                    total=len(preprocessed)):  # TODO: parallelize?
                 if self.is_training:
                     examples += self.process_sample(sample)
                 else:
@@ -187,8 +190,9 @@ class MT5Dataset(Dataset):
         else:
             with open(self.datafile, encoding="utf-8") as f:
                 num_lines = sum(1 for _ in f)
+            logging.info(f"Processing samples from {self.datafile}...")
             with jsonlines.open(self.datafile) as fp:
-                for idx, sample in tqdm(enumerate(fp), total=num_lines):  # TODO: parallelize?
+                for idx, sample in tqdm(enumerate(fp), desc="Processing samples", total=num_lines):  # TODO: parallelize?
                     if self.is_training:
                         examples += self.process_sample(sample)
                     else:
@@ -210,6 +214,7 @@ class MT5Dataset(Dataset):
                             target_example = " ".join(self.tokenizer.convert_ids_to_tokens(possible_target))
                             logging.info("target:")
                             logging.info(target_example)
+                    break
 
         return examples
 
@@ -303,6 +308,8 @@ class MT5Dataset(Dataset):
         multi-span answer in case of NQ, treated as more answers)
         """
         assert type(self.tokenizer) in [MT5Tokenizer, MT5TokenizerFast], f"Unsupported Tokenizer {type(self.tokenizer)}"
+        assert len(sample['answers']) >= len(self.langs), \
+                f"Number of languages in sample {len(sample['answers'])} is smaller than languages {len(self.langs)}"
 
         # get gt_index - index of golden passage, if available
         gt_index = None
@@ -319,6 +326,7 @@ class MT5Dataset(Dataset):
             top_k_passages_tokens = []
             top_k_passages_raw = []
         else:  # otherwise, initialize with golden passage
+            raise NotImplementedError("Golden passages does not work properly!")
             selected_ids = [(gt_index, 'en')]
 
             title, passage = self.db_multi.get_doc_text(gt_index, 'en', columns=["title", "passage"])
@@ -327,12 +335,12 @@ class MT5Dataset(Dataset):
             titles_raw = [title]
 
             golden_passage = " " + passage
-            top_k_passages_tokens = [self.tokenizer.encode(golden_passage, add_special_tokens=False)]
+            top_k_passages_tokens = [self.tokenizer.encode(golden_passage+1, add_special_tokens=False)]
             top_k_passages_raw = [golden_passage]
 
         # take rest of the passages as top-k, if available
         lang_tally = { }
-        number_of_contexts = len(sample['retrieval']) * self.context_size
+        number_of_contexts = len(self.langs) * self.context_size
         for neg_ind in sorted(sample['retrieval'], key=lambda x: x['score'], reverse=True):
             idx: int = neg_ind['id']
             lang: str = neg_ind['lang']
@@ -365,14 +373,18 @@ class MT5Dataset(Dataset):
                 top_k_passages_tokens.append(tokenized_passage)
                 top_k_passages_raw.append(passage)
 
-        assert len(top_k_passages_tokens) == number_of_contexts, \
-            f"Passages: {len(top_k_passages_tokens)}, Context size: {number_of_contexts}"
+        if len(top_k_passages_tokens) != number_of_contexts:
+            logging.info("Not enough selected passages!")
+            logging.info(f"Query: {sample['query']}")
+            logging.info(f"Selected: {selected_ids}")
+        #assert len(top_k_passages_tokens) == number_of_contexts, \
+        #    f"Passages: {len(top_k_passages_tokens)}, Context size: {number_of_contexts} \n{selected_ids}"
 
         queries = sample['queries']
         answers = sample['answers']
         examples = []
         for lang in queries.keys():
-            question = queries[lang] + " ?"
+            question = queries[lang]
             question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
 
             input_sequences, document_masks = self.assemble_input_sequences(question=question_tokens,
@@ -396,9 +408,13 @@ class MT5Dataset(Dataset):
                 examples.append(example)
             else:
                 for answer, targetSequence in zip(answers[lang], target_sequences):
+                    print(question)
+                    print(answer)
                     # useful for debugging
                     # rev_input = " ".join(tokenizer.convert_ids_to_tokens(inputSequence))
                     # rev_target = " ".join(tokenizer.convert_ids_to_tokens(targetSequence))
+                    print(lang)
+                    print(targetSequence)
                     example = {
                         "id"       : sample["example_id"],
                         "question" : queries[lang],
