@@ -380,23 +380,21 @@ class MT5Dataset(Dataset):
         #assert len(top_k_passages_tokens) == number_of_contexts, \
         #    f"Passages: {len(top_k_passages_tokens)}, Context size: {number_of_contexts} \n{selected_ids}"
 
-        queries = sample['queries']
-        answers = sample['answers']
         examples = []
         for lang in queries.keys():
-            question = queries[lang]
+            question = sample['queries'][lang]
             question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
 
             input_sequences, document_masks = self.assemble_input_sequences(question=question_tokens,
                                                                             passages=top_k_passages_tokens,
                                                                             titles=titles)
-            answer = answers[lang]
-            target_sequences = self.assemble_target_sequences(answers=answer, tokenizer=self.tokenizer)
+            answers = sample['answers'][lang]
+            target_sequences = self.assemble_target_sequences(answers=answers, tokenizer=self.tokenizer)
 
             if not target_sequences:  # in test time
                 example = {
                     "id"       : sample["example_id"],
-                    "question" : queries[lang],
+                    "question" : question,
                     "lang"     : lang,
                     "answers"  : [],
                     "sources"  : input_sequences,
@@ -407,23 +405,25 @@ class MT5Dataset(Dataset):
                     del example["doc_masks"]
                 examples.append(example)
             else:
-                for answer, targetSequence in zip(answers[lang], target_sequences):
+                for targetSequence in target_sequences:
                     print(question)
                     print(answer)
                     # useful for debugging
                     # rev_input = " ".join(tokenizer.convert_ids_to_tokens(inputSequence))
                     # rev_target = " ".join(tokenizer.convert_ids_to_tokens(targetSequence))
                     print(lang)
-                    print(targetSequence)
                     example = {
                         "id"       : sample["example_id"],
-                        "question" : queries[lang],
+                        "question" : question,
                         "lang"     : lang,
-                        "answers"  : answer,
+                        "answers"  : answers,
                         "sources"  : input_sequences,
                         "doc_masks": document_masks,
                         "target"   : targetSequence,
                         }
+                    target_example = " ".join(self.tokenizer.convert_ids_to_tokens(targetSequence))
+                    print(target_example)
+                    print("*" * 10)
                     if not self.include_doc_masks:
                         del example["doc_masks"]
                     examples.append(example)
