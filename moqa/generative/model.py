@@ -17,6 +17,9 @@ class MT5QA(T5PreTrainedModel):
     config_class = MT5Config
     _keys_to_ignore_on_load_missing = [
         r"encoder\.embed_tokens\.weight",
+        r"decoder\.embed_tokens\.weight",
+        r"lm_head\.weight",
+        r"decoder\.block\.0\.layer\.1\.EncDecAttention\.relative_attention_bias\.weight",
         ]
 
     def __init__(self, config: MT5Config):

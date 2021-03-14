@@ -84,7 +84,8 @@ class Trainer:
                           preprocessing_truncation=config["preprocessing_truncation"],
                           # use_only_human_answer=config.get("use_human_answer_only", False),
                           is_training=True)
-        splits = data.split(split_ratio=config['split_ratio'], stratified=True, strata_field='lang')
+        splits = data.split(split_ratio=config['split_ratio'], stratified=True, strata_field='id')
+        #splits = data.split(split_ratio=config['split_ratio'], stratified=True, strata_field='lang')
         if len(splits) == 3:
             train = splits[0]
             val = splits[1]

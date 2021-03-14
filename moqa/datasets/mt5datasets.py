@@ -51,6 +51,7 @@ class MT5Dataset(Dataset):
                  db_multi: PassageDB,
                  langs: List[str],
                  context_length,
+                 answer_limit=1,
                  max_len=None,
                  is_training=True,
                  include_golden_passage=True,
@@ -60,6 +61,7 @@ class MT5Dataset(Dataset):
                  init_examples=True,
                  cache_dir='data/cache/generative', **kwargs):
 
+        self.answer_limit = answer_limit
         self.langs = langs
         self.cache_dir = cache_dir
         self.datafile = datafile
@@ -110,9 +112,11 @@ class MT5Dataset(Dataset):
     def create_preprocessed_name(self):
         without_psg_suffix = f"_withoutpassages" if not self.include_golden_passage else ""
         with_psg_masks = "_with_passage_masks" if self.include_passage_masks else ""
+        answer_limit = f"_answers_{self.answer_limit}" if self.answer_limit != -1 else ""
         preprocessed_f_noext = os.path.join(self.cache_dir, os.path.basename(
             self.datafile)) + f"_mkqa" \
                               f"_C{self.context_size}" \
+                              f"{answer_limit}"\
                               f"{with_psg_masks}" \
                               f"{without_psg_suffix}" \
                               f"_{self.preprocessing_truncation}"
@@ -122,7 +126,7 @@ class MT5Dataset(Dataset):
     @staticmethod
     def save(preprocessed_f: string, raw_examples: List[Dict]):
         with jsonlines.open(preprocessed_f, "w") as wf:
-            for e in tqdm(raw_examples, desc=f"Saving into {preprocessed_f}"):
+            for e in tqdm(raw_examples, desc=f"Saving processed examples"):
                 wf.write(e)
 
     @staticmethod
@@ -210,12 +214,10 @@ class MT5Dataset(Dataset):
                         if len(examples[0]["target"]) > 1:
                             possible_target = examples[0]["target"]
                             if type(possible_target) == list:
-                                possible_target = possible_target[0]
+                                possible_target = possible_target
                             target_example = " ".join(self.tokenizer.convert_ids_to_tokens(possible_target))
                             logging.info("target:")
                             logging.info(target_example)
-                    break
-
         return examples
 
     @staticmethod
@@ -381,14 +383,14 @@ class MT5Dataset(Dataset):
         #    f"Passages: {len(top_k_passages_tokens)}, Context size: {number_of_contexts} \n{selected_ids}"
 
         examples = []
-        for lang in queries.keys():
+        for lang in self.langs:
             question = sample['queries'][lang]
             question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
 
             input_sequences, document_masks = self.assemble_input_sequences(question=question_tokens,
                                                                             passages=top_k_passages_tokens,
                                                                             titles=titles)
-            answers = sample['answers'][lang]
+            answers = sample['answers'][lang][:self.answer_limit]
             target_sequences = self.assemble_target_sequences(answers=answers, tokenizer=self.tokenizer)
 
             if not target_sequences:  # in test time
@@ -406,12 +408,9 @@ class MT5Dataset(Dataset):
                 examples.append(example)
             else:
                 for targetSequence in target_sequences:
-                    print(question)
-                    print(answer)
                     # useful for debugging
                     # rev_input = " ".join(tokenizer.convert_ids_to_tokens(inputSequence))
                     # rev_target = " ".join(tokenizer.convert_ids_to_tokens(targetSequence))
-                    print(lang)
                     example = {
                         "id"       : sample["example_id"],
                         "question" : question,
@@ -422,8 +421,6 @@ class MT5Dataset(Dataset):
                         "target"   : targetSequence,
                         }
                     target_example = " ".join(self.tokenizer.convert_ids_to_tokens(targetSequence))
-                    print(target_example)
-                    print("*" * 10)
                     if not self.include_doc_masks:
                         del example["doc_masks"]
                     examples.append(example)
