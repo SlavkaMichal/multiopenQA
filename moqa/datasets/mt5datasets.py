@@ -10,11 +10,12 @@ from tqdm import tqdm
 from transformers import PreTrainedTokenizer, MT5Tokenizer, MT5TokenizerFast
 from torchtext.legacy.data import Iterator
 from typing import List, Tuple, Dict, AnyStr, Optional
-
+from random import sample
 from moqa.db import PassageDB
 from moqa.common import config
 from moqa.datasets.preprocessor import MKQAPrep
 import logging
+import pdb
 
 logging.basicConfig(
     format=f"%(asctime)s:%(filename)s:%(lineno)d:%(levelname)s: %(message)s",
@@ -138,22 +139,28 @@ class MT5Dataset(Dataset):
     def load_iterable(fields, raw_examples, include_passage_masks=False):
         fields = list(fields.items())
         examples = []
+        skip = 6
+        logging.info(f"Skipping every {skip} element")
         for i, e in tqdm(enumerate(raw_examples), desc="Loading preprocessed data..."):
-            if i % 6 == 0:
+            if i % skip == 0:
                 continue
             example = MT5Dataset.torchtext_example(e, fields, include_passage_masks)
             examples.append(example)
+            if i == 100:
+                break
         return examples
 
     @staticmethod
     def torchtext_example(e, fields, include_passage_masks, choose_random_target=False):
         target = e["target"] if not choose_random_target else random.choice(e["target"])
+        sources = sample(e["sources"], 10)
         _preprocessed_example = [
             e["id"],
             e["question"],
             e["answers"],
-            e["sources"],
-            [[1] * len(x) for x in e["sources"]],
+            e["lang"],
+            sources,
+            [[1] * len(x) for x in sources],
             e.get("doc_masks", None),
             target,
             [1] * len(target)]
@@ -420,7 +427,7 @@ class MT5Dataset(Dataset):
                         "answers"  : answers,
                         "sources"  : input_sequences,
                         "doc_masks": document_masks,
-                        "target"   : targetSequence,
+                        "target"   : [targetSequence],
                         }
                     target_example = " ".join(self.tokenizer.convert_ids_to_tokens(targetSequence))
                     if not self.include_doc_masks:

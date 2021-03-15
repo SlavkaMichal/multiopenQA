@@ -10,6 +10,7 @@ from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttenti
 from transformers.models.t5.modeling_t5 import T5Stack, T5PreTrainedModel
 
 from moqa.common import utils
+import pdb
 
 
 class MT5QA(T5PreTrainedModel):
@@ -42,6 +43,7 @@ class MT5QA(T5PreTrainedModel):
 
         self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
 
+        self.training_steps = 0
         self.init_weights()
 
         # Model parallel
