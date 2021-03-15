@@ -7,7 +7,7 @@ import random
 import torch
 
 from moqa.generative import Trainer
-from moqa.generative.types import TrainConfig, OptimConfig, SchedulerConfig
+# from moqa.generative.config_types import TrainConfig, OptimConfig, SchedulerConfig
 from moqa.common import config as logging_cfg
 
 logging.basicConfig(
@@ -40,7 +40,7 @@ languages = [
     "tr",
     ]
 
-optimizer_config: OptimConfig = {
+optimizer_config = {
     'optimizer'        : 'adam',
     # Parameters used in efficientQA
     "learning_rate"    : 1e-4,
@@ -51,16 +51,17 @@ optimizer_config: OptimConfig = {
     "attention_dropout": 0.1,
     }
 
-scheduler_config: SchedulerConfig = {
+scheduler_config = {
     'scheduler'             : 'linear',
     'scheduler_warmup_steps': 600
     }
 
-config: TrainConfig = {
+config = {
     'reader_tokenizer_type'   : 'google/mt5-small',
     'reader_transformer_type' : 'google/mt5-small',
     'reader_max_input_length' : None,
     'pretrained_model'        : None,
+    #    'cache_transformers'      : '../../data/cache/Transformers',
     'cache_transformers'      : 'data/cache/Transformers',
 
     'fusion_strategy'         : 'allinputs',
@@ -79,10 +80,13 @@ config: TrainConfig = {
     'batch_size'              : 1,
     'true_batch_size'         : 64,
 
+    # 'data'                    : '../../data/mkqa/mkqa_dpr_spacy_only.jsonl',
     'data'                    : 'data/mkqa/mkqa_dpr_spacy_only.jsonl',
     'preprocess'              : False,
+    # 'cache_data'              : '../../data/cache/data',
     'cache_data'              : 'data/cache/data',
     'split_ratio'             : [0.7, 0.25],
+    # 'database'                : '../../data/wiki/multi_passage.db',
     'database'                : 'data/wiki/multi_passage.db',
     'context_length'          : 2, # this is per language
 
@@ -109,5 +113,3 @@ if __name__ == "__main__":
         logging.error(be)
         logging.error(traceback.format_exc())
         raise be
-    finally:
-        framework.db.close()

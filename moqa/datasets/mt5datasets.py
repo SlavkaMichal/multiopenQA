@@ -49,7 +49,7 @@ class MT5Dataset(Dataset):
                  datafile: AnyStr,
                  preprocess,
                  tokenizer: PreTrainedTokenizer,
-                 db_multi: PassageDB,
+                 db_multi: Optional[PassageDB],
                  langs: List[str],
                  context_length,
                  answer_limit=1,
@@ -162,8 +162,8 @@ class MT5Dataset(Dataset):
             sources,
             [[1] * len(x) for x in sources],
             e.get("doc_masks", None),
-            target,
-            [1] * len(target)]
+            target[0],
+            [1] * len(target[0])]
         if not include_passage_masks:
             del _preprocessed_example[-3]
         example = Example.fromlist(_preprocessed_example, fields)

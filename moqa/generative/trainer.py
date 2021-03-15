@@ -23,7 +23,8 @@ from moqa.generative.model import MT5QA
 from moqa.db import PassageDB
 from moqa.common import config as logging_cfg
 import logging
-from .types import TrainConfig
+
+# from .config_types import TrainConfig
 
 logging.basicConfig(
     format=f"%(asctime)s:%(filename)s:%(lineno)d:%(levelname)s: %(message)s",
@@ -38,7 +39,7 @@ def get_model(m):
 
 
 class Trainer:
-    def __init__(self, config: TrainConfig, device):
+    def __init__(self, config, device):
         self.config = config
         self.sched_config = config['sched_cfg']
         self.optim_config = config['optim_cfg']
@@ -48,7 +49,7 @@ class Trainer:
         # adding special tokens
         self.tokenizer = self.init_tokenizer(config['reader_tokenizer_type'], config['cache_transformers'])
 
-        self.db = PassageDB(db_path=self.config['database'])
+        self.db = None  # PassageDB(db_path=self.config['database'])
 
     @staticmethod
     def init_tokenizer(tokenizer_type, cache_dir) -> PreTrainedTokenizer:
@@ -66,7 +67,7 @@ class Trainer:
         return reader_tokenizer
 
     def fit(self):
-        config: TrainConfig = self.config
+        config = self.config
 
         logging.debug(json.dumps(config, indent=4, sort_keys=True))
 
@@ -95,7 +96,7 @@ class Trainer:
             val = splits[1]
             test = None
 
-        logging.info("Loading model...")
+        logging.info("Loading model")
         model = torch.load(config["pretrained_model"], map_location=self.device) \
             if config["pretrained_model"] is not None \
             else MT5QA.from_pretrained(config).to(self.device)
@@ -134,7 +135,7 @@ class Trainer:
         param_sizes, param_shapes = report_parameters(model)
         param_sizes = "\n'".join(str(param_sizes).split(", '"))
         param_shapes = "\n'".join(str(param_shapes).split(", '"))
-        logging.debug(f"Model structure:\n{param_sizes}\n{param_shapes}\n")
+        # logging.debug(f"Model structure:\n{param_sizes}\n{param_shapes}\n")
 
         # Init optimizer
         no_decay = ["bias", "LayerNorm.weight"]

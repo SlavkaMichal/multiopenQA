@@ -11,6 +11,12 @@ from transformers.models.t5.modeling_t5 import T5Stack, T5PreTrainedModel
 
 from moqa.common import utils
 import pdb
+from moqa.common import config as logging_cfg
+
+logging.basicConfig(
+    format=f"%(asctime)s:%(filename)s:%(lineno)d:%(levelname)s: %(message)s",
+    filename=logging_cfg.log_file,
+    level=logging_cfg.log_level)
 
 
 class MT5QA(T5PreTrainedModel):
@@ -52,6 +58,8 @@ class MT5QA(T5PreTrainedModel):
 
     @classmethod
     def from_pretrained(cls, config, **kwargs):
+        logging.info(f"Transformers cache: {config['cache_transformers']}")
+        logging.info(f"Model type: {config['reader_transformer_type']}")
         cfg = MT5Config.from_pretrained(config['reader_transformer_type'], cache_dir=config['cache_transformers'],
                                         tie_word_embeddings=True)
         cfg.attention_probs_dropout_prob = config['optim_cfg']["attention_dropout"]  # optim
