@@ -5,17 +5,15 @@ import time
 import pprint
 
 from jsonlines import jsonlines
-from torchtext.legacy.data import Dataset, Field, RawField, Example, NestedField
+from torchtext.data import Dataset, Field, RawField, Example, NestedField, Iterator
 from tqdm import tqdm
 from transformers import PreTrainedTokenizer, MT5Tokenizer, MT5TokenizerFast
-from torchtext.legacy.data import Iterator
 from typing import List, Tuple, Dict, AnyStr, Optional
 from random import sample
 from moqa.db import PassageDB
 from moqa.common import config
-from moqa.datasets.preprocessor import MKQAPrep
+# from moqa.datasets.preprocessor import MKQAPrep
 import logging
-import pdb
 
 logging.basicConfig(
     format=f"%(asctime)s:%(filename)s:%(lineno)d:%(levelname)s: %(message)s",
@@ -174,32 +172,34 @@ class MT5Dataset(Dataset):
         examples = []
         if self.preprocess:
             logging.info("Preprocessing data from MKQA...")
-            preprocessor = MKQAPrep(self.langs, topk=20)
-            preprocessed = preprocessor.preprocess(write=True)
-            logging.info("Processing samples...")
-            for idx, sample in tqdm(enumerate(preprocessed), desc="Processing samples",
-                    total=len(preprocessed)):  # TODO: parallelize?
-                if self.is_training:
-                    examples += self.process_sample(sample)
-                else:
-                    # Do not use same question with multiple answers in validation
-                    examples += [self.process_sample(sample)[0]]
+            raise NotImplementedError("Use preprocessor directly and pass the preprocessed data. "
+                                      "This has been removed to get rid of Lucene dependency for training.")
+            # preprocessor = MKQAPrep(self.langs, topk=20)
+            # preprocessed = preprocessor.preprocess(write=True)
+            # logging.info("Processing samples...")
+            # for idx, sample in tqdm(enumerate(preprocessed), desc="Processing samples",
+            #         total=len(preprocessed)):  # TODO: parallelize?
+            #     if self.is_training:
+            #         examples += self.process_sample(sample)
+            #     else:
+            #         # Do not use same question with multiple answers in validation
+            #         examples += [self.process_sample(sample)[0]]
 
-                if idx == 0:
-                    logging.info("Example of input formats:")
-                    src_example1 = " ".join(self.tokenizer.convert_ids_to_tokens(examples[0]["sources"][0]))
-                    src_example2 = " ".join(self.tokenizer.convert_ids_to_tokens(examples[0]["sources"][1]))
-                    logging.info("inputs 1:")
-                    logging.info(src_example1)
-                    logging.info("inputs 2:")
-                    logging.info(src_example2)
-                    if len(examples[0]["target"]) > 1:
-                        possible_target = examples[0]["target"]
-                        if type(possible_target) == list:
-                            possible_target = possible_target[0]
-                        target_example = " ".join(self.tokenizer.convert_ids_to_tokens(possible_target))
-                        logging.info("target:")
-                        logging.info(target_example)
+            #     if idx == 0:
+            #         logging.info("Example of input formats:")
+            #         src_example1 = " ".join(self.tokenizer.convert_ids_to_tokens(examples[0]["sources"][0]))
+            #         src_example2 = " ".join(self.tokenizer.convert_ids_to_tokens(examples[0]["sources"][1]))
+            #         logging.info("inputs 1:")
+            #         logging.info(src_example1)
+            #         logging.info("inputs 2:")
+            #         logging.info(src_example2)
+            #         if len(examples[0]["target"]) > 1:
+            #             possible_target = examples[0]["target"]
+            #             if type(possible_target) == list:
+            #                 possible_target = possible_target[0]
+            #             target_example = " ".join(self.tokenizer.convert_ids_to_tokens(possible_target))
+            #             logging.info("target:")
+            #              logging.info(target_example)
         else:
             with open(self.datafile, encoding="utf-8") as f:
                 num_lines = sum(1 for _ in f)

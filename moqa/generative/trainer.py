@@ -10,7 +10,7 @@ import transformers
 from torch.nn import DataParallel
 from torch.optim import Optimizer, Adam, AdamW
 from torch.optim.lr_scheduler import LambdaLR
-from torchtext.legacy.data import Iterator
+from torchtext.data import Iterator
 from tqdm import tqdm
 from transformers import AutoTokenizer, PreTrainedTokenizer
 from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions, Seq2SeqLMOutput
@@ -49,7 +49,7 @@ class Trainer:
         # adding special tokens
         self.tokenizer = self.init_tokenizer(config['reader_tokenizer_type'], config['cache_transformers'])
 
-        self.db = None  # PassageDB(db_path=self.config['database'])
+        self.db = PassageDB(db_path=self.config['database'])
 
     @staticmethod
     def init_tokenizer(tokenizer_type, cache_dir) -> PreTrainedTokenizer:
@@ -318,6 +318,7 @@ class Trainer:
 
                 # record losses to list
                 losses_per_update.append(loss.item())
+
                 if len(losses_per_update) == update_ratio and not adjusted_for_last_update:
                     # grad clipping should be applied to unscaled gradients
                     torch.nn.utils.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
@@ -325,6 +326,7 @@ class Trainer:
                     # compute training loss
                     loss_per_update = sum(losses_per_update) / len(losses_per_update)
                     total_losses += losses_per_update
+                    logging.info(f"Total loss: {total_losses}")
                     losses_per_update = []
 
                     optimizer.step()
