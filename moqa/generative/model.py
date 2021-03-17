@@ -29,6 +29,13 @@ class MT5QA(T5PreTrainedModel):
         r"decoder\.block\.0\.layer\.1\.EncDecAttention\.relative_attention_bias\.weight",
         ]
 
+    sample_from_pretrained_config = {
+            'reader_transformer_type': 'google/mt5-small',
+            'cache_transformers': 'data/cache/Transformers',
+            'optim_cfg':{"hidden_dropout"   : 0.1,
+                         "attention_dropout": 0.1,},
+            'fusion_strategy':'allinputs',}
+
     def __init__(self, config: MT5Config):
         super().__init__(config)
         self.model_dim = config.d_model
@@ -55,6 +62,13 @@ class MT5QA(T5PreTrainedModel):
         # Model parallel
         self.model_parallel = False
         self.device_map = None
+
+        self.sample_from_pretrained_config = {
+                'reader_transformer_type': 'google/mt5-small',
+                'cache_transformers': 'data/cache/Transformers',
+                'optim_cfg':{"hidden_dropout"   : 0.1,
+                             "attention_dropout": 0.1,},
+                'fusion_strategy':'allinputs',}
 
     @classmethod
     def from_pretrained(cls, config, **kwargs):

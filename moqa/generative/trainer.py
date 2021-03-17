@@ -310,9 +310,9 @@ class Trainer:
                     update_ratio = (total - i)
                     adjusted_for_last_update = True
 
-                losses = F.cross_entropy(lm_logits.view(-1, get_model(model).config.vocab_size), labels,
-                                         reduction='none')
-                loss = losses.mean()
+                loss = F.cross_entropy(lm_logits.view(-1, get_model(model).config.vocab_size), labels,
+                                         reduction='mean')
+                #loss = losses.mean()
                 loss /= update_ratio
                 loss.backward()
 
@@ -326,7 +326,6 @@ class Trainer:
                     # compute training loss
                     loss_per_update = sum(losses_per_update) / len(losses_per_update)
                     total_losses += losses_per_update
-                    logging.info(f"Total loss: {total_losses}")
                     losses_per_update = []
 
                     optimizer.step()
@@ -353,6 +352,7 @@ class Trainer:
             # Catch out-of-memory errors
             except RuntimeError as e:
                 if "CUDA out of memory." in str(e):
+                    print(torch.cuda.memory_stats())
                     torch.cuda.empty_cache()
                     logging.error("OOM detected, emptying cache...")
                     logging.error(f"src_shape {src_shapes}\n"

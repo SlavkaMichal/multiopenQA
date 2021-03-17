@@ -128,30 +128,27 @@ class MT5Dataset(Dataset):
             for e in tqdm(raw_examples, desc=f"Saving processed examples"):
                 wf.write(e)
 
-    @staticmethod
-    def load(preprocessed_f: string, fields: List[Tuple[str, RawField]], **kwargs) -> List[Example]:
+    def load(self, preprocessed_f: string, fields: List[Tuple[str, RawField]], **kwargs) -> List[Example]:
         with jsonlines.open(preprocessed_f, "r") as raw_examples:
-            return MT5Dataset.load_iterable(fields, raw_examples, **kwargs)
+            return self.load_iterable(fields, raw_examples, **kwargs)
 
-    @staticmethod
-    def load_iterable(fields, raw_examples, include_passage_masks=False):
+    def load_iterable(self, fields, raw_examples, include_passage_masks=False):
         fields = list(fields.items())
         examples = []
         skip = 6
         logging.info(f"Skipping every {skip} element")
         for i, e in tqdm(enumerate(raw_examples), desc="Loading preprocessed data..."):
+            if i == 300:
+                break
             if i % skip == 0:
                 continue
-            example = MT5Dataset.torchtext_example(e, fields, include_passage_masks)
+            example = self.torchtext_example(e, fields, include_passage_masks)
             examples.append(example)
-            if i == 100:
-                break
         return examples
 
-    @staticmethod
-    def torchtext_example(e, fields, include_passage_masks, choose_random_target=False):
+    def torchtext_example(self, e, fields, include_passage_masks, choose_random_target=False):
         target = e["target"] if not choose_random_target else random.choice(e["target"])
-        sources = sample(e["sources"], 10)
+        sources = [ s[:300-1] + [self.tokenizer.eos_token_id] for s in sample(e["sources"], 30) ]
         _preprocessed_example = [
             e["id"],
             e["question"],
