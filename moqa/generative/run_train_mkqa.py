@@ -40,22 +40,6 @@ languages = [
     "tr",
     ]
 
-optimizer_config = {
-    'optimizer'        : 'adam',
-    # Parameters used in efficientQA
-    "learning_rate"    : 1e-4,
-    "adam_eps"         : 1e-06,
-    "max_grad_norm"    : 1.,
-    "weight_decay"     : 1e-5,
-    "hidden_dropout"   : 0.1,
-    "attention_dropout": 0.1,
-    }
-
-scheduler_config = {
-    'scheduler'             : 'linear',
-    'scheduler_warmup_steps': 600
-    }
-
 config = {
     'reader_tokenizer_type'   : 'google/mt5-small',
     'reader_transformer_type' : 'google/mt5-small',
@@ -66,7 +50,7 @@ config = {
 
     'fusion_strategy'         : 'allinputs',
     'include_golden_passage'  : False,
-    'preprocessing_truncation': 'truncate_only_passages',
+    'preprocessing_truncation': 'truncate_whole_input',
 
     'save_dir'                : 'data/models',
     'results'                 : 'data/results',
@@ -85,13 +69,23 @@ config = {
     'preprocess'              : False,
     # 'cache_data'              : '../../data/cache/data',
     'cache_data'              : 'data/cache/data',
-    'split_ratio'             : [0.7, 0.25],
+    'split_ratio'             : [9, 1],
     # 'database'                : '../../data/wiki/multi_passage.db',
     'database'                : 'data/wiki/multi_passage.db',
-    'context_length'          : 2, # this is per language
+    'context_per_language'    : 1,  # this is per language
+    'max_len'                 : 270,  # max context length
+    'answer_limit'            : 1,  # max number of answers per example
 
-    'optim_cfg'               : optimizer_config,
-    'sched_cfg'               : scheduler_config
+    'optimizer'               : 'adam',
+    # Parameters used in efficientQA
+    "learning_rate"           : 1e-4,
+    "adam_eps"                : 1e-06,
+    "max_grad_norm"           : 1.,
+    "weight_decay"            : 1e-5,
+    "hidden_dropout"          : 0.1,
+    "attention_dropout"       : 0.1,
+    'scheduler'               : 'linear',
+    'scheduler_warmup_steps'  : 600
     }
 
 if __name__ == "__main__":

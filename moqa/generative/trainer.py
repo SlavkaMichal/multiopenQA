@@ -41,8 +41,6 @@ def get_model(m):
 class Trainer:
     def __init__(self, config, device):
         self.config = config
-        self.sched_config = config['sched_cfg']
-        self.optim_config = config['optim_cfg']
         self.device = device
         self.best_em = config["save_em_threshold"]
         self.increase_validation_frequency = False
@@ -79,11 +77,11 @@ class Trainer:
                           preprocess=config["preprocess"],
                           langs=config["languages"],
                           cache_dir=config["cache_data"],
-                          context_length=config["context_length"],
+                          context_length=config["context_per_language"],
+                          max_len=config["max_len"],
                           include_golden_passage=config["include_golden_passage"],
                           include_passage_masks=include_passage_masks,
                           preprocessing_truncation=config["preprocessing_truncation"],
-                          # use_only_human_answer=config.get("use_human_answer_only", False),
                           is_training=True)
         splits = data.split(split_ratio=config['split_ratio'], stratified=True, strata_field='id')
         #splits = data.split(split_ratio=config['split_ratio'], stratified=True, strata_field='lang')
@@ -142,27 +140,27 @@ class Trainer:
         optimizer_grouped_parameters = [
             {
                 "params"      : [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-                "weight_decay": self.optim_config["weight_decay"],
+                "weight_decay": self.config["weight_decay"],
                 },
             {
                 "params"      : [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
                 "weight_decay": 0.0
                 }, ]
         # Optimizer setup
-        if self.optim_config["optimizer"] == "adamw":
+        if self.config["optimizer"] == "adamw":
             optimizer = AdamW
-        elif self.optim_config["optimizer"] == "adam":
+        elif self.config["optimizer"] == "adam":
             optimizer = Adam
         else:
             raise ValueError("Unsupported optimizer")
         optimizer = optimizer(optimizer_grouped_parameters,
-                              lr=self.optim_config["learning_rate"],
-                              eps=self.optim_config["adam_eps"])
+                              lr=self.config["learning_rate"],
+                              eps=self.config["adam_eps"])
 
         # Init scheduler
-        if self.sched_config["scheduler_warmup_steps"] > 0:
+        if self.config["scheduler_warmup_steps"] > 0:
             t_total = self.config["max_steps"]
-            warmup_steps = self.sched_config["scheduler_warmup_steps"]
+            warmup_steps = self.config["scheduler_warmup_steps"]
             scheduler = self.init_scheduler(
                 optimizer,
                 num_warmup_steps=warmup_steps,
@@ -226,20 +224,20 @@ class Trainer:
             for group in optimizer.param_groups:
                 group.setdefault('initial_lr', group['lr'])
 
-        if self.sched_config["scheduler"] == "linear":
+        if self.config["scheduler"] == "linear":
             scheduler = transformers.get_linear_schedule_with_warmup(
                 optimizer=optimizer,
                 num_warmup_steps=num_warmup_steps,
                 num_training_steps=num_training_steps,
                 last_epoch=last_step)
-        elif self.sched_config["scheduler"] == "cosine":
+        elif self.config["scheduler"] == "cosine":
             scheduler = transformers.get_cosine_schedule_with_warmup(
                 optimizer=optimizer,
                 num_warmup_steps=num_warmup_steps,
                 num_training_steps=num_training_steps,
                 num_cycles=0.5,
                 last_epoch=last_step)
-        elif self.sched_config["scheduler"] == "constant":
+        elif self.config["scheduler"] == "constant":
             scheduler = transformers.get_constant_schedule_with_warmup(
                 optimizer=optimizer,
                 num_warmup_steps=num_warmup_steps,
@@ -266,12 +264,11 @@ class Trainer:
         update_ratio = self.config["true_batch_size"] // self.config["batch_size"]
         assert self.config["true_batch_size"] % self.config["batch_size"] == 0
         updated = False
-        adjusted_for_last_update = False  # In last update, the ba tch size is adjusted to whats left
 
         # Calculate total number of updates per epoch
         total = len(data_iter.data()) // data_iter.batch_size + 1
 
-        it = tqdm(enumerate(data_iter), total=total)
+        it = tqdm(enumerate(data_iter), total=total - 1)
 
         # For progressive  training loss  reporting
         total_losses = []
@@ -279,6 +276,9 @@ class Trainer:
 
         for i, batch in it:
             assert len(batch.src) == 1  # more  than 1 example per batch is unsupported
+            updated = False
+            if len(losses_per_update) == 0 and total - i < update_ratio:
+                update_ratio = total - i
 
             batch.src = batch.src[0]
             batch.src_mask = batch.src_mask[0]
@@ -305,24 +305,18 @@ class Trainer:
                 lm_logits = outputs[0]
                 labels = batch.target[:, 1:].reshape(-1)
 
-                # Adjust update ratio for last update if needed
-                if (total - i) < update_ratio and not adjusted_for_last_update:
-                    update_ratio = (total - i)
-                    adjusted_for_last_update = True
-
                 loss = F.cross_entropy(lm_logits.view(-1, get_model(model).config.vocab_size), labels,
                                          reduction='mean')
-                #loss = losses.mean()
                 loss /= update_ratio
                 loss.backward()
 
                 # record losses to list
                 losses_per_update.append(loss.item())
 
-                if len(losses_per_update) == update_ratio and not adjusted_for_last_update:
+                if len(losses_per_update) == update_ratio:
                     # grad clipping should be applied to unscaled gradients
                     torch.nn.utils.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
-                                                   self.optim_config["max_grad_norm"])
+                                                   self.config["max_grad_norm"])
                     # compute training loss
                     loss_per_update = sum(losses_per_update) / len(losses_per_update)
                     total_losses += losses_per_update
@@ -349,6 +343,8 @@ class Trainer:
                     if get_model(model).training_steps > 1 and \
                             get_model(model).training_steps % self.config["validate_after_steps"] == 0:
                         self.validate(model, val_iter, optimizer_dict=optimizer.state_dict())
+                else:
+                    updated = False
             # Catch out-of-memory errors
             except RuntimeError as e:
                 if "CUDA out of memory." in str(e):
@@ -366,13 +362,12 @@ class Trainer:
         if not updated:
             # Do the last step if needed
             torch.nn.utils.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
-                                           self.optim_config["max_grad_norm"])
+                                           self.config["max_grad_norm"])
             optimizer.step()
             optimizer.zero_grad()
             get_model(model).training_steps += 1
             if scheduler is not None:
                 scheduler.step(epoch=epoch)
-            updated = True
 
         # Validate after epoch
         self.validate(model, val_iter)

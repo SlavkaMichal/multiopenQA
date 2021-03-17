@@ -136,10 +136,10 @@ class MT5Dataset(Dataset):
         fields = list(fields.items())
         examples = []
         skip = 6
-        logging.info(f"Skipping every {skip} element")
+        logging.info(f"Skipping every {skip} element.")
+        if len(self.langs) % skip == 0:
+            raise RuntimeError("Skip value should not be a divider or multiple of number of languages!")
         for i, e in tqdm(enumerate(raw_examples), desc="Loading preprocessed data..."):
-            if i == 300:
-                break
             if i % skip == 0:
                 continue
             example = self.torchtext_example(e, fields, include_passage_masks)
@@ -385,6 +385,11 @@ class MT5Dataset(Dataset):
             logging.info("Not enough selected passages!")
             logging.info(f"Query: {sample['query']}")
             logging.info(f"Selected: {selected_ids}")
+            found = [lang for _, lang in selected_ids]
+            for lang in self.langs:
+                if lang not in found:
+                    logging.info(f"Retriever failed for {lang}")
+            return []
         #assert len(top_k_passages_tokens) == number_of_contexts, \
         #    f"Passages: {len(top_k_passages_tokens)}, Context size: {number_of_contexts} \n{selected_ids}"
 
@@ -426,7 +431,6 @@ class MT5Dataset(Dataset):
                         "doc_masks": document_masks,
                         "target"   : [targetSequence],
                         }
-                    target_example = " ".join(self.tokenizer.convert_ids_to_tokens(targetSequence))
                     if not self.include_doc_masks:
                         del example["doc_masks"]
                     examples.append(example)
