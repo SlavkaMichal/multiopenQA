@@ -22,6 +22,7 @@ from moqa.common.eval_utils import metric_max_over_ground_truths, exact_match_sc
 from moqa.generative.model import MT5QA
 from moqa.db import PassageDB
 from moqa.common import config as logging_cfg
+import ipdb
 import logging
 
 # from .config_types import TrainConfig
@@ -80,6 +81,7 @@ class Trainer:
                           context_length=config["context_per_language"],
                           max_len=config["max_len"],
                           include_golden_passage=config["include_golden_passage"],
+                          only_gt_passages=config["only_gt_passages"],
                           include_passage_masks=include_passage_masks,
                           preprocessing_truncation=config["preprocessing_truncation"],
                           is_training=True)
@@ -172,6 +174,7 @@ class Trainer:
             scheduler = None
 
         start_time = time.time()
+        ipdb.set_trace()
         try:
             it = 0
             while get_model(model).training_steps < self.config["max_steps"]:
@@ -412,6 +415,7 @@ class Trainer:
 
             # hacky, provide just some tensor as input ids, such that it matches batch dimension 1,
             # do not provide input ids, as they should not be needed (and have pre-concatenation batch dim)
+            # ipdb.set_trace()
             tokenized_answers = get_model(model).generate(input_ids=concatenated_encoder_attention,
                                                           # num_beams=5,
                                                           # num_return_sequences=5,

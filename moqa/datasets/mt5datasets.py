@@ -2,7 +2,6 @@ import os
 import random
 import string
 import time
-import pprint
 
 from jsonlines import jsonlines
 from torchtext.data import Dataset, Field, RawField, Example, NestedField, Iterator
@@ -54,6 +53,7 @@ class MT5Dataset(Dataset):
                  max_len=None,
                  is_training=True,
                  include_golden_passage=True,
+                 only_gt_passages=False,
                  preprocessing_truncation="truncate_only_passages",
                  include_passage_masks=False,
                  use_cache=True,
@@ -72,6 +72,7 @@ class MT5Dataset(Dataset):
         self.use_cache = use_cache
         self.context_size = context_length
         self.include_golden_passage = include_golden_passage
+        self.only_gt_passages = only_gt_passages
         self.include_passage_masks = include_passage_masks
         self.preprocessing_truncation = preprocessing_truncation
 
@@ -148,14 +149,14 @@ class MT5Dataset(Dataset):
 
     def torchtext_example(self, e, fields, include_passage_masks, choose_random_target=False):
         target = e["target"] if not choose_random_target else random.choice(e["target"])
-        sources = [ s[:300-1] + [self.tokenizer.eos_token_id] for s in sample(e["sources"], 30) ]
+        # sources = [ s[:300-1] + [self.tokenizer.eos_token_id] for s in sample(e["sources"], 30) ]
         _preprocessed_example = [
             e["id"],
             e["question"],
             e["answers"],
             e["lang"],
-            sources,
-            [[1] * len(x) for x in sources],
+            e['sources'],
+            [[1] * len(x) for x in e['sources']],
             e.get("doc_masks", None),
             target[0],
             [1] * len(target[0])]
@@ -334,7 +335,6 @@ class MT5Dataset(Dataset):
             top_k_passages_tokens = []
             top_k_passages_raw = []
         else:  # otherwise, initialize with golden passage
-            raise NotImplementedError("Golden passages does not work properly!")
             selected_ids = [(gt_index, 'en')]
 
             title, passage = self.db_multi.get_doc_text(gt_index, 'en', columns=["title", "passage"])
@@ -343,8 +343,30 @@ class MT5Dataset(Dataset):
             titles_raw = [title]
 
             golden_passage = " " + passage
-            top_k_passages_tokens = [self.tokenizer.encode(golden_passage+1, add_special_tokens=False)]
+            top_k_passages_tokens = [self.tokenizer.encode(golden_passage + 1, add_special_tokens=False)]
             top_k_passages_raw = [golden_passage]
+
+            if self.only_gt_passages:
+
+                question = sample['queries']['en']
+                question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
+
+                input_sequences, document_masks = self.assemble_input_sequences(question=question_tokens,
+                                                                                passages=top_k_passages_tokens,
+                                                                                titles=titles)
+                answers = sample['answers']['en'][:self.answer_limit]
+                target_sequences = self.assemble_target_sequences(answers=answers, tokenizer=self.tokenizer)
+
+                example = {
+                    "id"       : sample["example_id"],
+                    "question" : question,
+                    "lang"     : 'en',
+                    "answers"  : [],
+                    "sources"  : input_sequences,
+                    "doc_masks": document_masks,
+                    "target"   : [target_sequences],
+                    }
+                return [example]
 
         # take rest of the passages as top-k, if available
         lang_tally = { }

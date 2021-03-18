@@ -49,7 +49,8 @@ config = {
     'cache_transformers'      : 'data/cache/Transformers',
 
     'fusion_strategy'         : 'allinputs',
-    'include_golden_passage'  : False,
+    'include_golden_passage'  : True,
+    'only_gt_passages'        : True,
     'preprocessing_truncation': 'truncate_whole_input',
 
     'save_dir'                : 'data/models',
@@ -85,7 +86,7 @@ config = {
     "hidden_dropout"          : 0.1,
     "attention_dropout"       : 0.1,
     'scheduler'               : 'linear',
-    'scheduler_warmup_steps'  : 600
+    'scheduler_warmup_steps'  : -1
     }
 
 if __name__ == "__main__":

@@ -76,8 +76,8 @@ class MT5QA(T5PreTrainedModel):
         logging.info(f"Model type: {config['reader_transformer_type']}")
         cfg = MT5Config.from_pretrained(config['reader_transformer_type'], cache_dir=config['cache_transformers'],
                                         tie_word_embeddings=True)
-        cfg.attention_probs_dropout_prob = config['optim_cfg']["attention_dropout"]  # optim
-        cfg.hidden_dropout_prob = config['optim_cfg']["hidden_dropout"]  # optim
+        cfg.attention_probs_dropout_prob = ["attention_dropout"]  # optim
+        cfg.hidden_dropout_prob = ["hidden_dropout"]  # optim
         cfg.fusion_strategy = config["fusion_strategy"]  # config
         cfg.custom_config = config['fusion_strategy']
         return super(MT5QA, cls).from_pretrained(
