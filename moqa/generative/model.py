@@ -5,7 +5,8 @@ from typing import Optional, Tuple
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss
-from transformers import MT5Config, MT5Tokenizer
+from transformers import MT5Config as Config
+from transformers import MT5Tokenizer as Tokenizer
 from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions, Seq2SeqLMOutput
 from transformers.models.t5.modeling_t5 import T5Stack, T5PreTrainedModel
 
@@ -21,7 +22,7 @@ logging.basicConfig(
 
 class MT5QA(T5PreTrainedModel):
     model_type = "mt5"
-    config_class = MT5Config
+    config_class = Config
     _keys_to_ignore_on_load_missing = [
         r"encoder\.embed_tokens\.weight",
         r"decoder\.embed_tokens\.weight",
@@ -36,7 +37,7 @@ class MT5QA(T5PreTrainedModel):
                          "attention_dropout": 0.1,},
             'fusion_strategy':'allinputs',}
 
-    def __init__(self, config: MT5Config):
+    def __init__(self, config: Config):
         super().__init__(config)
         self.model_dim = config.d_model
 
@@ -74,8 +75,8 @@ class MT5QA(T5PreTrainedModel):
     def from_pretrained(cls, config, **kwargs):
         logging.info(f"Transformers cache: {config['cache_transformers']}")
         logging.info(f"Model type: {config['reader_transformer_type']}")
-        cfg = MT5Config.from_pretrained(config['reader_transformer_type'], cache_dir=config['cache_transformers'],
-                                        tie_word_embeddings=True)
+        cfg = Config.from_pretrained(config['reader_transformer_type'], cache_dir=config['cache_transformers'],
+                                        tie_word_embeddings=False)
         cfg.attention_probs_dropout_prob = ["attention_dropout"]  # optim
         cfg.hidden_dropout_prob = ["hidden_dropout"]  # optim
         cfg.fusion_strategy = config["fusion_strategy"]  # config

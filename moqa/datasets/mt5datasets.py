@@ -6,11 +6,14 @@ import time
 from jsonlines import jsonlines
 from torchtext.data import Dataset, Field, RawField, Example, NestedField, Iterator
 from tqdm import tqdm
-from transformers import PreTrainedTokenizer, MT5Tokenizer, MT5TokenizerFast
+from transformers import PreTrainedTokenizer
+from transformers import MT5Tokenizer as Tokenizer
+from transformers import MT5TokenizerFast as TokenizerFast
 from typing import List, Tuple, Dict, AnyStr, Optional
 from random import sample
 from moqa.db import PassageDB
 from moqa.common import config
+import ipdb
 # from moqa.datasets.preprocessor import MKQAPrep
 import logging
 
@@ -45,12 +48,14 @@ class MT5Dataset(Dataset):
     def __init__(self,
                  datafile: AnyStr,
                  preprocess,
+                 model_name,
                  tokenizer: PreTrainedTokenizer,
                  db_multi: Optional[PassageDB],
                  langs: List[str],
                  context_length,
                  answer_limit=1,
                  max_len=None,
+                 data_size=-1, # if lower than zero than does nothing
                  is_training=True,
                  include_golden_passage=True,
                  only_gt_passages=False,
@@ -64,6 +69,7 @@ class MT5Dataset(Dataset):
         self.langs = langs
         self.cache_dir = cache_dir
         self.datafile = datafile
+        self.model_name = model_name
         self.preprocess = preprocess
         self.tokenizer = tokenizer
         self.db_multi = db_multi
@@ -75,6 +81,7 @@ class MT5Dataset(Dataset):
         self.only_gt_passages = only_gt_passages
         self.include_passage_masks = include_passage_masks
         self.preprocessing_truncation = preprocessing_truncation
+        self.data_size = data_size
 
         fields = self.prepare_fields(tokenizer.pad_token_id)
         if not include_passage_masks and 'doc_mask' in fields:
@@ -112,14 +119,18 @@ class MT5Dataset(Dataset):
     def create_preprocessed_name(self):
         without_psg_suffix = f"_withoutpassages" if not self.include_golden_passage else ""
         with_psg_masks = "_with_passage_masks" if self.include_passage_masks else ""
+        model_name = f"_{self.model_name}" if self.model_name else ""
+        gt_only = "_gt_only" if self.only_gt_passages else ""
         answer_limit = f"_answers_{self.answer_limit}" if self.answer_limit != -1 else ""
         preprocessed_f_noext = os.path.join(self.cache_dir, os.path.basename(
             self.datafile)) + f"_mkqa" \
                               f"_C{self.context_size}" \
                               f"{answer_limit}"\
                               f"{with_psg_masks}" \
+                              f"{gt_only}" \
                               f"{without_psg_suffix}" \
-                              f"_{self.preprocessing_truncation}"
+                              f"_{self.preprocessing_truncation}" \
+                              f"{model_name}"
         preprocessed_f = preprocessed_f_noext + ".jsonl"
         return preprocessed_f
 
@@ -141,10 +152,12 @@ class MT5Dataset(Dataset):
         if len(self.langs) % skip == 0:
             raise RuntimeError("Skip value should not be a divider or multiple of number of languages!")
         for i, e in tqdm(enumerate(raw_examples), desc="Loading preprocessed data..."):
-            if i % skip == 0:
+            if not self.gt_only and i % skip == 0 :
                 continue
             example = self.torchtext_example(e, fields, include_passage_masks)
             examples.append(example)
+            if self.data_size > 0 and self.data_size <= i:
+                break
         return examples
 
     def torchtext_example(self, e, fields, include_passage_masks, choose_random_target=False):
@@ -210,10 +223,14 @@ class MT5Dataset(Dataset):
                         # Do not use same question with multiple answers in validation
                         examples += [self.process_sample(sample)[0]]
 
-                    if idx == 0:
+                    if idx < 20 and len(examples) == 1:
+                        # less than 20 because len(exmples) won't be evaluated every iteration if some somples are rejected
                         logging.info("Example of input formats:")
                         src_example1 = " ".join(self.tokenizer.convert_ids_to_tokens(examples[0]["sources"][0]))
-                        src_example2 = " ".join(self.tokenizer.convert_ids_to_tokens(examples[0]["sources"][1]))
+                        if len(examples[0]["sources"]) > 1:
+                            src_example2 = " ".join(self.tokenizer.convert_ids_to_tokens(examples[0]["sources"][1]))
+                        else:
+                            src_example2 = "Only one example"
                         logging.info("inputs 1:")
                         logging.info(src_example1)
                         logging.info("inputs 2:")
@@ -250,26 +267,27 @@ class MT5Dataset(Dataset):
     @staticmethod
     def assemble_target_sequences(answers: List, tokenizer: PreTrainedTokenizer):
         target_sequences = []
-        for ans in answers:
-            # T5 does this in their official T5 closed-book open-QA code
-            # see https://colab.research.google.com/github/google-research/text-to-text-transfer-transformer/blob
-            # /master/notebooks/t5-trivia.ipynb#scrollTo=OjEonhK3zNRu&line=18&uniqifier=1
-            # Remove incorrect spacing around punctuation for NQ (but we keep the same code for all datasets)
-            ans = ans.replace(" ,", ",").replace(" .", ".").replace(" %", "%")
-            ans = ans.replace(" - ", "-").replace(" : ", ":").replace(" / ", "/")
-            ans = ans.replace("( ", "(").replace(" )", ")")
-            ans = ans.replace("`` ", "\"").replace(" ''", "\"")
-            ans = ans.replace(" 's", "'s").replace("s ' ", "s' ")
-            target_sequence = tokenizer.encode(ans, add_special_tokens=True)
-            if type(tokenizer) in [MT5Tokenizer, MT5TokenizerFast]:
-                # T5 starts generation with pad token
-                target_sequence = [tokenizer.pad_token_id] + target_sequence
-            else:
-                assert False, "Unsupported tokenizer"
-            # check there is only one pad and only one eos token
-            assert target_sequence.count(tokenizer.eos_token_id) == 1
-            assert target_sequence.count(tokenizer.pad_token_id) == 1
-            target_sequences.append(target_sequence)
+        with self.tokenizer.as_target_tokenizer():
+            for ans in answers:
+                # T5 does this in their official T5 closed-book open-QA code
+                # see https://colab.research.google.com/github/google-research/text-to-text-transfer-transformer/blob
+                # /master/notebooks/t5-trivia.ipynb#scrollTo=OjEonhK3zNRu&line=18&uniqifier=1
+                # Remove incorrect spacing around punctuation for NQ (but we keep the same code for all datasets)
+                ans = ans.replace(" ,", ",").replace(" .", ".").replace(" %", "%")
+                ans = ans.replace(" - ", "-").replace(" : ", ":").replace(" / ", "/")
+                ans = ans.replace("( ", "(").replace(" )", ")")
+                ans = ans.replace("`` ", "\"").replace(" ''", "\"")
+                ans = ans.replace(" 's", "'s").replace("s ' ", "s' ")
+                target_sequence = tokenizer.encode(ans, add_special_tokens=True)
+                if type(tokenizer) in [Tokenizer, TokenizerFast]:
+                    # T5 starts generation with pad token
+                    target_sequence = [tokenizer.pad_token_id] + target_sequence
+                else:
+                    assert False, "Unsupported tokenizer"
+                # check there is only one pad and only one eos token
+                assert target_sequence.count(tokenizer.eos_token_id) == 1
+                assert target_sequence.count(tokenizer.pad_token_id) == 1
+                target_sequences.append(target_sequence)
 
         return target_sequences
 
@@ -278,7 +296,7 @@ class MT5Dataset(Dataset):
         inputs = []
         document_masks = []
 
-        if type(self.tokenizer) in [MT5Tokenizer, MT5TokenizerFast]:
+        if type(self.tokenizer) in [Tokenizer, TokenizerFast]:
             question_special_token = self.tokenizer.convert_tokens_to_ids(self.tokenizer.question_special_token)
             passage_special_token = self.tokenizer.convert_tokens_to_ids(self.tokenizer.passage_special_token)
             title_special_token = self.tokenizer.convert_tokens_to_ids(self.tokenizer.title_special_token)
@@ -316,7 +334,7 @@ class MT5Dataset(Dataset):
         :return: numericalized sample(s), note that there can be more, as there can be more answers (or one
         multi-span answer in case of NQ, treated as more answers)
         """
-        assert type(self.tokenizer) in [MT5Tokenizer, MT5TokenizerFast], f"Unsupported Tokenizer {type(self.tokenizer)}"
+        assert type(self.tokenizer) in [Tokenizer, TokenizerFast], f"Unsupported Tokenizer {type(self.tokenizer)}"
         assert len(sample['answers']) >= len(self.langs), \
                 f"Number of languages in sample {len(sample['answers'])} is smaller than languages {len(self.langs)}"
 
@@ -326,7 +344,7 @@ class MT5Dataset(Dataset):
             gt_index = sample["gt_index"]
 
         # if golden passage is not available, start with empty set of passages
-        if gt_index is None or not self.include_golden_passage:
+        if not self.include_golden_passage:
             # unknown ground truth
             selected_ids = []
             titles = []
@@ -334,16 +352,16 @@ class MT5Dataset(Dataset):
 
             top_k_passages_tokens = []
             top_k_passages_raw = []
-        else:  # otherwise, initialize with golden passage
+        elif gt_index is not None:  # otherwise, initialize with golden passage
             selected_ids = [(gt_index, 'en')]
 
-            title, passage = self.db_multi.get_doc_text(gt_index, 'en', columns=["title", "passage"])
+            title, passage = self.db_multi.get_doc_text(gt_index+1, 'en', columns=["title", "passage"])
 
             titles = [self.tokenizer.encode(title, add_special_tokens=False)]
             titles_raw = [title]
 
             golden_passage = " " + passage
-            top_k_passages_tokens = [self.tokenizer.encode(golden_passage + 1, add_special_tokens=False)]
+            top_k_passages_tokens = [self.tokenizer.encode(golden_passage, add_special_tokens=False)]
             top_k_passages_raw = [golden_passage]
 
             if self.only_gt_passages:
@@ -361,12 +379,19 @@ class MT5Dataset(Dataset):
                     "id"       : sample["example_id"],
                     "question" : question,
                     "lang"     : 'en',
-                    "answers"  : [],
+                    "answers"  : sample['answers']['en'],
                     "sources"  : input_sequences,
                     "doc_masks": document_masks,
-                    "target"   : [target_sequences],
+                    "target"   : target_sequences,
                     }
                 return [example]
+        elif self.only_gt_passages:
+            # return empty list if sample does not contain gt passage
+            return []
+        else:
+            # gt passages are included but this sample does not contain one
+            # and there are not only gt passages
+            pass
 
         # take rest of the passages as top-k, if available
         lang_tally = { }
@@ -448,7 +473,7 @@ class MT5Dataset(Dataset):
                         "id"       : sample["example_id"],
                         "question" : question,
                         "lang"     : lang,
-                        "answers"  : answers,
+                        "answers"  : sample['answers'][lang],
                         "sources"  : input_sequences,
                         "doc_masks": document_masks,
                         "target"   : [targetSequence],

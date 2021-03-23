@@ -43,4 +43,4 @@ def normalize_text(s):
     return white_space_fix(remove_articles(remove_punc(lower(s))))
 
 def timestamp():
-    datetime.now().strftime("%y-%m-%d_%H:%M:%S")
+    return datetime.now().strftime("%y-%m-%d_%H:%M:%S")

@@ -72,9 +72,13 @@ class Trainer:
 
         include_passage_masks = config["fusion_strategy"] == "passages"
 
+        model_name = config['reader_transformer_type']
+        model_name = model_name if model_name == 't5-small' else ""
         data = MT5Dataset(config["data"],
                           tokenizer=self.tokenizer,
                           db_multi=self.db,
+                          model_name=model_name,
+                          data_size=config["data_size"],
                           preprocess=config["preprocess"],
                           langs=config["languages"],
                           cache_dir=config["cache_data"],
@@ -85,39 +89,55 @@ class Trainer:
                           include_passage_masks=include_passage_masks,
                           preprocessing_truncation=config["preprocessing_truncation"],
                           is_training=True)
-        splits = data.split(split_ratio=config['split_ratio'], stratified=True, strata_field='id')
+
+
+        logging.info(f"Total data examples:{len(data)}")
+        # return splits (train, test, val?), irrespectively of split_ratio
+        splits = data.split(split_ratio=config['split_ratio'])
         #splits = data.split(split_ratio=config['split_ratio'], stratified=True, strata_field='lang')
         if len(splits) == 3:
             train = splits[0]
-            val = splits[1]
-            test = splits[2]
-        else:
+            val = splits[2]
+            test = splits[1]
+        elif len(splits) == 2:
             train = splits[0]
             val = splits[1]
             test = None
+        elif config["test_only"]:
+            # should be an error
+            test = data
+        else:
+            raise RuntimeError("Something went wrong with data preparation")
 
-        logging.info("Loading model")
+
+        if config['pretrained_model'] is None:
+            logging.info("Loading model")
+        else:
+            logging.info(f"Loading model from {config['pretrained_model']}")
+
         model = torch.load(config["pretrained_model"], map_location=self.device) \
             if config["pretrained_model"] is not None \
             else MT5QA.from_pretrained(config).to(self.device)
 
         logging.info(f"Training data examples:{len(train)}")
-        logging.info(f"Validation data examples:{len(val)}")
+        if val is not None:
+            logging.info(f"Validation data examples:{len(val)}")
         if test is not None:
             logging.info(f"Test data examples {len(test)}")
 
-        train_iter = Iterator(train,
-                              shuffle=True,
-                              sort=False,  # do not sort!
-                              batch_size=1,
-                              train=True,
-                              repeat=False,
-                              device=self.device)
-        val_iter = Iterator(val,
-                            sort=False,
-                            shuffle=False,
-                            batch_size=1,
-                            repeat=False, device=self.device)
+        if not config["test_only"]:
+            train_iter = Iterator(train,
+                                  shuffle=True,
+                                  sort=False,  # do not sort!
+                                  batch_size=1,
+                                  train=True,
+                                  repeat=False,
+                                  device=self.device)
+            val_iter = Iterator(val,
+                                sort=False,
+                                shuffle=False,
+                                batch_size=1,
+                                repeat=False, device=self.device)
 
         if test is not None:
             test_iter = Iterator(test,
@@ -128,7 +148,7 @@ class Trainer:
             test_iter = None
 
         logging.info(f"Resizing token embeddings to length {len(self.tokenizer)}")
-        model.resize_token_embeddings(len(self.tokenizer))
+        # model.resize_token_embeddings(len(self.tokenizer))
 
         logging.info(f"Model has {count_parameters(model)} trainable parameters")
         logging.info(f"Trainable parameter checksum: {sum_parameters(model)}")
@@ -138,64 +158,82 @@ class Trainer:
         # logging.debug(f"Model structure:\n{param_sizes}\n{param_shapes}\n")
 
         # Init optimizer
-        no_decay = ["bias", "LayerNorm.weight"]
-        optimizer_grouped_parameters = [
-            {
-                "params"      : [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
-                "weight_decay": self.config["weight_decay"],
-                },
-            {
-                "params"      : [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
-                "weight_decay": 0.0
-                }, ]
-        # Optimizer setup
-        if self.config["optimizer"] == "adamw":
-            optimizer = AdamW
-        elif self.config["optimizer"] == "adam":
-            optimizer = Adam
-        else:
-            raise ValueError("Unsupported optimizer")
-        optimizer = optimizer(optimizer_grouped_parameters,
-                              lr=self.config["learning_rate"],
-                              eps=self.config["adam_eps"])
+        if not config["test_only"]:
+            if test is not None:
+                logging.info("Validating before start")
+                self.validate(model, test_iter)
+            no_decay = ["bias", "LayerNorm.weight"]
+            optimizer_grouped_parameters = [
+                {
+                    "params"      : [p for n, p in model.named_parameters() if not any(nd in n for nd in no_decay)],
+                    "weight_decay": self.config["weight_decay"],
+                    },
+                {
+                    "params"      : [p for n, p in model.named_parameters() if any(nd in n for nd in no_decay)],
+                    "weight_decay": 0.0
+                    }, ]
+            # Optimizer setup
+            if self.config["optimizer"] == "adamw":
+                optimizer = AdamW
+            elif self.config["optimizer"] == "adam":
+                optimizer = Adam
+            else:
+                raise ValueError("Unsupported optimizer")
+            optimizer = optimizer(optimizer_grouped_parameters,
+                                  lr=self.config["learning_rate"],
+                                  eps=self.config["adam_eps"])
 
-        # Init scheduler
-        if self.config["scheduler_warmup_steps"] > 0:
-            t_total = self.config["max_steps"]
-            warmup_steps = self.config["scheduler_warmup_steps"]
-            scheduler = self.init_scheduler(
-                optimizer,
-                num_warmup_steps=warmup_steps,
-                num_training_steps=t_total,
-                last_step=get_model(model).training_steps - 1
-                )
-            logging.info(f"Scheduler: warmup steps: {warmup_steps}, total_steps: {t_total}")
-        else:
-            scheduler = None
+            if config['pretrained_model'] is not None and config['load_optimizer_state_dict']:
+                optimizer.load_state_dict(model.optimizer_state_dict)
+                del(model.optimizer_state_dict)
 
-        start_time = time.time()
+            # Init scheduler
+            if self.config["scheduler_warmup_steps"] > 0:
+                t_total = self.config["max_steps"]
+                warmup_steps = self.config["scheduler_warmup_steps"]
+                scheduler = self.init_scheduler(
+                    optimizer,
+                    num_warmup_steps=warmup_steps,
+                    num_training_steps=t_total,
+                    last_step=get_model(model).training_steps - 1
+                    )
+                logging.info(f"Scheduler: warmup steps: {warmup_steps}, total_steps: {t_total}")
+            else:
+                scheduler = None
+
+            start_time = time.time()
+            logging.info(f"Steps: {get_model(model).training_steps}")
+            try:
+                it = 0
+                while get_model(model).training_steps < self.config["max_steps"]:
+                    logging.info(f"Epoch {it}")
+                    train_loss = self.train_epoch(model=model,
+                                                  epoch=it,
+                                                  data_iter=train_iter,
+                                                  val_iter=val_iter,
+                                                  optimizer=optimizer,
+                                                  scheduler=scheduler)
+                    logging.info(f"Training loss: {train_loss:.5f}")
+                    it += 1
+            except KeyboardInterrupt:
+                logging.info('-' * 120)
+                logging.info('Exit from training early.')
+            finally:
+                logging.info(f'Finished after {(time.time() - start_time) / 60} minutes.')
+                if hasattr(self, "best_ckpt_name"):
+                    logging.info(f"Loading best checkpoint {self.best_ckpt_name}")
+                    model = torch.load(self.best_ckpt_name, map_location=self.device)
+
         ipdb.set_trace()
-        try:
-            it = 0
-            while get_model(model).training_steps < self.config["max_steps"]:
-                logging.info(f"Epoch {it}")
-                train_loss = self.train_epoch(model=model,
-                                              epoch=it,
-                                              data_iter=train_iter,
-                                              val_iter=val_iter,
-                                              optimizer=optimizer,
-                                              scheduler=scheduler)
-                logging.info(f"Training loss: {train_loss:.5f}")
-                it += 1
-        except KeyboardInterrupt:
-            logging.info('-' * 120)
-            logging.info('Exit from training early.')
-        finally:
-            logging.info(f'Finished after {(time.time() - start_time) / 60} minutes.')
-            if hasattr(self, "best_ckpt_name"):
-                logging.info(f"Loading best checkpoint {self.best_ckpt_name}")
-                model = torch.load(self.best_ckpt_name, map_location=self.device)
         logging.info("#" * 50)
+        if test is not None:
+            logging.info("Validating on the test data")
+            self.validate(model, test_iter)
+        ipdb.set_trace()
+        if test is not None:
+            logging.info("Validating on the test data")
+            self.validate(model, test_iter)
+        ipdb.set_trace()
         if test is not None:
             logging.info("Validating on the test data")
             self.validate(model, test_iter)
@@ -333,10 +371,9 @@ class Trainer:
                     updated = True
                     # If we are past 2/3 of expected training steps
                     if get_model(model).training_steps > (2 * self.config["max_steps"] / 3) and \
-                            not self.increase_validation_frequency:
+                            not self.increase_validation_frequency and self.config["validate_after_steps"] > 20:
                         # Increase validation frequency with factor of 2
-                        self.config["validate_after_steps"] = self.config[
-                                                                  "validate_after_steps"] // 2
+                        self.config["validate_after_steps"] = self.config["validate_after_steps"] // 2
                         self.increase_validation_frequency = True
                         logging.info(f"Validation frequency increased to: {self.config['validate_after_steps']}")
 
@@ -387,7 +424,8 @@ class Trainer:
         total = 0
         hits = 0
         loss_list = []
-        for _, batch in it:
+        for x, batch in it:
+            # ipdb.set_trace()
             batch.src = batch.src[0]
             batch.src_mask = batch.src_mask[0]
             batch.doc_mask = batch.doc_mask[0] if hasattr(batch, "doc_mask") else None
@@ -415,7 +453,6 @@ class Trainer:
 
             # hacky, provide just some tensor as input ids, such that it matches batch dimension 1,
             # do not provide input ids, as they should not be needed (and have pre-concatenation batch dim)
-            # ipdb.set_trace()
             tokenized_answers = get_model(model).generate(input_ids=concatenated_encoder_attention,
                                                           # num_beams=5,
                                                           # num_return_sequences=5,
@@ -430,6 +467,7 @@ class Trainer:
                     metric_fn=exact_match_score, prediction=predicted_answers[i],
                     ground_truths=batch.answers[i])
                 hits += int(hit)
+
             it.set_description(f"Val Loss: {sum(loss_list) / len(loss_list):.3f} EM: {hits / total:.3f}")
 
         EM = hits / total

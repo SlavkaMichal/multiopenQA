@@ -5,6 +5,7 @@ import traceback
 from random import randint
 import random
 import torch
+import ipdb
 
 from moqa.generative import Trainer
 # from moqa.generative.config_types import TrainConfig, OptimConfig, SchedulerConfig
@@ -44,33 +45,37 @@ config = {
     'reader_tokenizer_type'   : 'google/mt5-small',
     'reader_transformer_type' : 'google/mt5-small',
     'reader_max_input_length' : None,
-    'pretrained_model'        : None,
+    'pretrained_model'        : 'data/models/generative_reader_EM0.5339_S3406_Mgoogle_mt5-small_None_pcknot4',
+    'load_optimizer_state_dict': False,
     #    'cache_transformers'      : '../../data/cache/Transformers',
     'cache_transformers'      : 'data/cache/Transformers',
 
     'fusion_strategy'         : 'allinputs',
-    'include_golden_passage'  : True,
-    'only_gt_passages'        : True,
+    'include_golden_passage'  : False,
+    'only_gt_passages'        : False,
     'preprocessing_truncation': 'truncate_whole_input',
 
     'save_dir'                : 'data/models',
     'results'                 : 'data/results',
-    'save_em_threshold'       : 0.3,
+    'save_em_threshold'       : 0.9,
     'test_only'               : False,
     'languages'               : languages,
 
     'validation_batch_size'   : 1,
-    'validate_after_steps'    : 500,
-    'max_steps'               : 10_000,
+    'validate_after_steps'    : 20,
+    'max_steps'               : 12_000,
     'batch_size'              : 1,
     'true_batch_size'         : 64,
 
     # 'data'                    : '../../data/mkqa/mkqa_dpr_spacy_only.jsonl',
     'data'                    : 'data/mkqa/mkqa_dpr_spacy_only.jsonl',
     'preprocess'              : False,
+    'test_only'               : False,
+    'data_size'               : -1,
     # 'cache_data'              : '../../data/cache/data',
     'cache_data'              : 'data/cache/data',
-    'split_ratio'             : [9, 1],
+    'split_ratio'             : [12, .3, 0.3],
+    'split_random_state'      : 9613, # make sure splits are the same each time
     # 'database'                : '../../data/wiki/multi_passage.db',
     'database'                : 'data/wiki/multi_passage.db',
     'context_per_language'    : 1,  # this is per language
@@ -95,6 +100,7 @@ if __name__ == "__main__":
     #os.mkdir(config["cache_data"])
 
     seed = randint(0, 10_000)
+    seed = 9613
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -105,6 +111,7 @@ if __name__ == "__main__":
     try:
         r = framework.fit()
     except BaseException as be:
+        ipdb.post_mortem()
         logging.error(be)
         logging.error(traceback.format_exc())
         raise be
