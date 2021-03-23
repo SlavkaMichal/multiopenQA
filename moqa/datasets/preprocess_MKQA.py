@@ -11,30 +11,30 @@ logging.basicConfig(
     filename=config.log_file,
     level=config.log_level)
 
-MKQA = "data/mkqa/mkqa.jsonl"
+MKQA_PATH = "data/mkqa/mkqa.jsonl"
 
-DPR_MAP = { 'dev'  : "data/data_martin_nq/nq-open_dev_short_maxlen_5_ms_with_dpr_annotation.jsonl",
-            'train': "data/data_martin_nq/nq-open_train_short_maxlen_5_ms_with_dpr_annotation.jsonl" }
+DPR_MAP = {'dev'  : "data/data_martin_nq/nq-open_dev_short_maxlen_5_ms_with_dpr_annotation.jsonl",
+           'train': "data/data_martin_nq/nq-open_train_short_maxlen_5_ms_with_dpr_annotation.jsonl"}
 
 
 def main():
-    data = MKQAPrep({ 'da': 'data/indexes/demo.index' },
+    data = MKQAPrep({'da': 'data/indexes/demo.index'},
                     topk=10,
                     spacy_only=False,
                     with_nq=False,
                     with_translated_positive_ctx=False,
                     search_with_title=False,
                     dpr_map=DPR_MAP['train'],
-                    mkqa_path=MKQA,
+                    mkqa_path=MKQA_PATH,
                     search_by_translated_ctx=False)
     data.preprocess(write=True, test=100)
 
 
-class MKQAPrep():
+class MKQAPrep:
     def __init__(self,
                  lang_idx: Union[List[str], Dict[str, AnyStr]],
                  topk=20,
-                 mkqa_path=MKQA,
+                 mkqa_path=MKQA_PATH,
                  spacy_only=False,
                  with_nq=False,
                  with_translated_positive_ctx=False,
@@ -55,13 +55,13 @@ class MKQAPrep():
         self.langs = [lang for lang in lang_idx]
         self.indexes = lang_idx
         if type(lang_idx) == list:
-            self.indexes = { }
+            self.indexes = {}
             for lang in lang_idx:
                 self.indexes[lang] = Retriever.get_index_name(lang=lang)
         self.topk = topk
         self.spacy_only = spacy_only
         self.with_nq = with_nq
-        self.dpr_map = { }
+        self.dpr_map = {}
         # map dpr by id
         with jl.open(dpr_map) as dpr_map:
             for sample in dpr_map:
@@ -101,8 +101,8 @@ class MKQAPrep():
             logging.info(f"Not saving data!")
 
         samples = []
-        len = 10000 if test == -1 else test
-        with tqdm(total=len, desc="Preprocessing MKQA") as pbar, jl.open(self.mkqa_path) as mkqa:
+        total = 10000 if test == -1 else test
+        with tqdm(total=total, desc="Preprocessing MKQA") as pbar, jl.open(self.mkqa_path) as mkqa:
             found_in_dpr_map = 0
             skipping = 0
             processed = 0
@@ -121,8 +121,8 @@ class MKQAPrep():
 
                 sample = {
                     'query'     : mkqa_sample['query'],
-                    'queries'   : { },
-                    'answers'   : { },
+                    'queries'   : {},
+                    'answers'   : {},
                     'example_id': mkqa_sample['example_id'],
                     'retrieval' : []
                     }
@@ -147,7 +147,7 @@ class MKQAPrep():
 
                 for lang, query in sample['queries'].items():
                     docs = searcher.query(query + title, lang, self.topk, field='context_title')
-                    sample['retrieval'] += [{ 'score': doc.score, 'lang': lang, 'id': doc.id } for doc in docs]
+                    sample['retrieval'] += [{'score': doc.score, 'lang': lang, 'id': doc.id} for doc in docs]
                 processed += 1
                 samples.append(sample)
                 if write:
@@ -155,21 +155,21 @@ class MKQAPrep():
                 pbar.update()
         logging.info("Finished!")
         logging.info(f"Positive ctx from dpr mapping found in {found_in_dpr_map}/{processed} samples.")
-        logging.info(f"Skipped {skipping}/{len} samples.")
+        logging.info(f"Skipped {skipping}/{total} samples.")
         if write:
             writer.close()
         return samples
 
 
 def test_debugger():
-    data = MKQAPrep({ 'da': '../../data/indexes/demo.index' },
+    data = MKQAPrep({'da': '../../data/indexes/demo.index'},
                     topk=10,
                     spacy_only=False,
                     with_nq=False,
                     with_translated_positive_ctx=False,
                     search_with_title=False,
                     dpr_map="../../" + DPR_MAP['train'],
-                    mkqa_path="../../" + MKQA,
+                    mkqa_path="../../" + MKQA_PATH,
                     search_by_translated_ctx=False)
     data.preprocess(write=False, test=20)
 

@@ -105,6 +105,8 @@ class Trainer:
             test = None
         elif config["test_only"]:
             # should be an error
+            val = None
+            train = None
             test = data
         else:
             raise RuntimeError("Something went wrong with data preparation")
@@ -155,7 +157,7 @@ class Trainer:
         param_sizes, param_shapes = report_parameters(model)
         param_sizes = "\n'".join(str(param_sizes).split(", '"))
         param_shapes = "\n'".join(str(param_shapes).split(", '"))
-        # logging.debug(f"Model structure:\n{param_sizes}\n{param_shapes}\n")
+        logging.debug(f"Model structure:\n{param_sizes}\n{param_shapes}\n")
 
         # Init optimizer
         if not config["test_only"]:
@@ -226,14 +228,6 @@ class Trainer:
 
         ipdb.set_trace()
         logging.info("#" * 50)
-        if test is not None:
-            logging.info("Validating on the test data")
-            self.validate(model, test_iter)
-        ipdb.set_trace()
-        if test is not None:
-            logging.info("Validating on the test data")
-            self.validate(model, test_iter)
-        ipdb.set_trace()
         if test is not None:
             logging.info("Validating on the test data")
             self.validate(model, test_iter)
@@ -347,7 +341,7 @@ class Trainer:
                 labels = batch.target[:, 1:].reshape(-1)
 
                 loss = F.cross_entropy(lm_logits.view(-1, get_model(model).config.vocab_size), labels,
-                                         reduction='mean')
+                                       reduction='mean')
                 loss /= update_ratio
                 loss.backward()
 
@@ -488,5 +482,16 @@ class Trainer:
                                                                f"{timestamp()}_{socket.gethostname()}")
             self.best_ckpt_name = saved_name
             torch.save(saveable_model, saved_name)
-            model = model.train()
+        else:
+            self.best_em = EM
+            serializable_model_name = self.config['reader_transformer_type'].replace("/", "_")
+            saveable_model = get_model(model)
+            saved_name = os.path.join(self.config['save_dir'], f"generative_reader_"
+                                                               f"EM{EM:.4f}_"
+                                                               f"S{get_model(model).training_steps}_"
+                                                               f"M{serializable_model_name}_"
+                                                               f"{timestamp()}_{socket.gethostname()}_worse")
+            self.best_ckpt_name = saved_name
+            torch.save(saveable_model, saved_name)
+        model.train()
         return EM
