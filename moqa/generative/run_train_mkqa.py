@@ -38,6 +38,15 @@ languages = [
     "tr",  # opus-mt-mul-en tur
     ]
 
+cached_data = {
+    'train': 'data/cache/data/mkqa_dpr_spacy_only.jsonl_mkqa_C1_answers_1_withoutpassages_truncate_whole_input_TRAIN'
+             '.jsonl',
+    'val'  : 'data/cache/data/mkqa_dpr_spacy_only.jsonl_mkqa_C1_answers_1_withoutpassages_truncate_whole_input_VAL'
+             '.jsonl',
+    'test' : 'data/cache/data/mkqa_dpr_spacy_only.jsonl_mkqa_C1_answers_1_withoutpassages_truncate_whole_input_TEST'
+             '.jsonl',
+    }
+
 config = {
     'reader_tokenizer_type'    : 'google/mt5-small',
     'reader_transformer_type'  : 'google/mt5-small',
@@ -51,9 +60,11 @@ config = {
     'include_golden_passage'   : False,
     'only_gt_passages'         : False,
     'preprocessing_truncation' : 'truncate_whole_input',
+    'fp16'                     : True,
 
     'save_dir'                 : 'data/models',
     'results'                  : 'data/results',
+    'log_results'              : True,
     'save_em_threshold'        : 0.9,
     'languages'                : languages,
 
@@ -67,9 +78,10 @@ config = {
     'data'                     : 'data/mkqa/mkqa_dpr_spacy_only.jsonl',
     'preprocess'               : False,
     'test_only'                : False,
-    'data_size'                : -1,
+    'data_size'                : -1,  # limit number of examples for debugging, if lower than 0 than no limit is applied
     # 'cache_data'              : '../../data/cache/data',
     'cache_data'               : 'data/cache/data',
+    'cached_data'              : cached_data,  # override default naming scheme
     'split_ratio'              : [12, .3, 0.3],
     'split_random_state'       : 9613,  # make sure splits are the same each time
     # 'database'                : '../../data/wiki/multi_passage.db',

@@ -55,13 +55,14 @@ class MT5Dataset(Dataset):
                  context_length,
                  answer_limit=1,
                  max_len=None,
-                 data_size=-1, # if lower than zero than does nothing
+                 data_size=-1,  # if lower than zero than does nothing
                  is_training=True,
                  include_golden_passage=True,
                  only_gt_passages=False,
                  preprocessing_truncation="truncate_only_passages",
                  include_passage_masks=False,
                  use_cache=True,
+                 cached_data_dir=None,
                  init_examples=True,
                  cache_dir='data/cache/generative', **kwargs):
 
@@ -76,6 +77,7 @@ class MT5Dataset(Dataset):
         self.max_len = tokenizer.model_max_length if max_len is None else max_len
         self.is_training = is_training
         self.use_cache = use_cache
+        self.cached_data_dir = cached_data_dir
         self.context_size = context_length
         self.include_golden_passage = include_golden_passage
         self.only_gt_passages = only_gt_passages
@@ -117,6 +119,8 @@ class MT5Dataset(Dataset):
             super().__init__(examples, fields, **kwargs)
 
     def create_preprocessed_name(self):
+        if self.cached_data_dir is not None:
+            return self.cached_data_dir
         without_psg_suffix = f"_withoutpassages" if not self.include_golden_passage else ""
         with_psg_masks = "_with_passage_masks" if self.include_passage_masks else ""
         model_name = f"_{self.model_name}" if self.model_name else ""
@@ -125,7 +129,7 @@ class MT5Dataset(Dataset):
         preprocessed_f_noext = os.path.join(self.cache_dir, os.path.basename(
             self.datafile)) + f"_mkqa" \
                               f"_C{self.context_size}" \
-                              f"{answer_limit}"\
+                              f"{answer_limit}" \
                               f"{with_psg_masks}" \
                               f"{gt_only}" \
                               f"{without_psg_suffix}" \
@@ -264,8 +268,7 @@ class MT5Dataset(Dataset):
             }
         return fields
 
-    @staticmethod
-    def assemble_target_sequences(answers: List, tokenizer: PreTrainedTokenizer):
+    def assemble_target_sequences(self, answers: List, tokenizer: PreTrainedTokenizer):
         target_sequences = []
         with self.tokenizer.as_target_tokenizer():
             for ans in answers:
@@ -373,7 +376,7 @@ class MT5Dataset(Dataset):
                                                                                 passages=top_k_passages_tokens,
                                                                                 titles=titles)
                 answers = sample['answers']['en'][:self.answer_limit]
-                target_sequences = self.assemble_target_sequences(answers=answers, tokenizer=self.tokenizer)
+                target_sequences = self.assemble_target_sequences(answers=answers)
 
                 example = {
                     "id"       : sample["example_id"],

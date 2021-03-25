@@ -9,6 +9,7 @@ import torch.nn.functional as F
 import transformers
 from torch.nn import DataParallel
 from torch.optim import Optimizer, Adam, AdamW
+from torch.cuda.amp import autocast, GradScaler
 from torch.optim.lr_scheduler import LambdaLR
 from torchtext.data import Iterator
 from tqdm import tqdm
@@ -70,47 +71,9 @@ class Trainer:
 
         logging.debug(json.dumps(config, indent=4, sort_keys=True))
 
-        include_passage_masks = config["fusion_strategy"] == "passages"
-
-        model_name = config['reader_transformer_type']
-        model_name = model_name if model_name == 't5-small' else ""
-        data = MT5Dataset(config["data"],
-                          tokenizer=self.tokenizer,
-                          db_multi=self.db,
-                          model_name=model_name,
-                          data_size=config["data_size"],
-                          preprocess=config["preprocess"],
-                          langs=config["languages"],
-                          cache_dir=config["cache_data"],
-                          context_length=config["context_per_language"],
-                          max_len=config["max_len"],
-                          include_golden_passage=config["include_golden_passage"],
-                          only_gt_passages=config["only_gt_passages"],
-                          include_passage_masks=include_passage_masks,
-                          preprocessing_truncation=config["preprocessing_truncation"],
-                          is_training=True)
-
-
-        logging.info(f"Total data examples:{len(data)}")
-        # return splits (train, test, val?), irrespectively of split_ratio
-        splits = data.split(split_ratio=config['split_ratio'])
-        #splits = data.split(split_ratio=config['split_ratio'], stratified=True, strata_field='lang')
-        if len(splits) == 3:
-            train = splits[0]
-            val = splits[2]
-            test = splits[1]
-        elif len(splits) == 2:
-            train = splits[0]
-            val = splits[1]
-            test = None
-        elif config["test_only"]:
-            # should be an error
-            val = None
-            train = None
-            test = data
-        else:
-            raise RuntimeError("Something went wrong with data preparation")
-
+        train, val, test = self.load_data()
+        # inspect data
+        ipdb.set_trace()
 
         if config['pretrained_model'] is None:
             logging.info("Loading model")
@@ -226,7 +189,6 @@ class Trainer:
                     logging.info(f"Loading best checkpoint {self.best_ckpt_name}")
                     model = torch.load(self.best_ckpt_name, map_location=self.device)
 
-        ipdb.set_trace()
         logging.info("#" * 50)
         if test is not None:
             logging.info("Validating on the test data")
@@ -293,6 +255,8 @@ class Trainer:
         model.train()
         # Make sure parameters are zero
         optimizer.zero_grad()
+        if self.config["fp16"]:
+            grad_scaler = GradScaler()
 
         # Determine update ratio, e.g. if true_batch_size = 32 and batch_size=8, then
         # gradients should be updated  every 4th iteration (except for last update!)
@@ -332,24 +296,41 @@ class Trainer:
                 # doc_mask in zip(batch.src,batch.doc_mask)]
                 # target =[" ".join(self.tokenizer.convert_ids_to_tokens(target)) for target in batch.target]
 
-                outputs = model(input_ids=batch.src, attention_mask=batch.src_mask,
-                                passage_mask=batch.doc_mask,
-                                decoder_input_ids=batch.target[:, :-1].contiguous(),
-                                decoder_attention_mask=batch.target_mask[:, :-1].contiguous(),
-                                use_cache=False)
-                lm_logits = outputs[0]
-                labels = batch.target[:, 1:].reshape(-1)
+                if self.config['fp16']:
+                    with autocast():
+                        outputs = model(input_ids=batch.src, attention_mask=batch.src_mask,
+                                        passage_mask=batch.doc_mask,
+                                        decoder_input_ids=batch.target[:, :-1].contiguous(),
+                                        decoder_attention_mask=batch.target_mask[:, :-1].contiguous(),
+                                        use_cache=False)
+                        lm_logits = outputs[0]
+                        labels = batch.target[:, 1:].reshape(-1)
 
-                loss = F.cross_entropy(lm_logits.view(-1, get_model(model).config.vocab_size), labels,
-                                       reduction='mean')
-                loss /= update_ratio
-                loss.backward()
+                        loss = F.cross_entropy(lm_logits.view(-1, get_model(model).config.vocab_size), labels,
+                                               reduction='mean')
+                        loss /= update_ratio
+                    grad_scaler.scale(loss).backward()
+                else:
+                    outputs = model(input_ids=batch.src, attention_mask=batch.src_mask,
+                                    passage_mask=batch.doc_mask,
+                                    decoder_input_ids=batch.target[:, :-1].contiguous(),
+                                    decoder_attention_mask=batch.target_mask[:, :-1].contiguous(),
+                                    use_cache=False)
+                    lm_logits = outputs[0]
+                    labels = batch.target[:, 1:].reshape(-1)
+
+                    loss = F.cross_entropy(lm_logits.view(-1, get_model(model).config.vocab_size), labels,
+                                           reduction='mean')
+                    loss /= update_ratio
+                    loss.backward()
 
                 # record losses to list
                 losses_per_update.append(loss.item())
 
                 if len(losses_per_update) == update_ratio:
                     # grad clipping should be applied to unscaled gradients
+                    if self.config["fp16"]:
+                        grad_scaler.unscale_(optimizer)
                     torch.nn.utils.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
                                                    self.config["max_grad_norm"])
                     # compute training loss
@@ -357,7 +338,11 @@ class Trainer:
                     total_losses += losses_per_update
                     losses_per_update = []
 
-                    optimizer.step()
+                    if self.config["fp16"]:
+                        grad_scaler.step(optimizer)
+                        grad_scaler.update()
+                    else:
+                        optimizer.step()
                     optimizer.zero_grad()
                     get_model(model).training_steps += 1
                     if scheduler is not None:
@@ -418,8 +403,13 @@ class Trainer:
         total = 0
         hits = 0
         loss_list = []
-        for x, batch in it:
-            # ipdb.set_trace()
+        if self.config['log_results']:
+            import csv
+            model_type = self.config['reader_transformer_type'].replace("/", "_")
+            outf = open(f"results/gen_reader_{model_type}.csv", "w", encoding="utf-8")
+            csvw = csv.writer(outf, delimiter=',')
+            csvw.writerow(["Correct", "Question", "Predicted Answer", "GT Answer", "Input"])
+        for i, batch in it:
             batch.src = batch.src[0]
             batch.src_mask = batch.src_mask[0]
             batch.doc_mask = batch.doc_mask[0] if hasattr(batch, "doc_mask") else None
@@ -461,12 +451,22 @@ class Trainer:
                     metric_fn=exact_match_score, prediction=predicted_answers[i],
                     ground_truths=batch.answers[i])
                 hits += int(hit)
+                if self.config['log_results']:
+                    csvw.writerow([
+                        hit,
+                        batch.question[i],
+                        predicted_answers[i],
+                        batch.answers[i],
+                        self.tokenizer.decode(batch.src[i])
+                        ])
 
             it.set_description(f"Val Loss: {sum(loss_list) / len(loss_list):.3f} EM: {hits / total:.3f}")
 
         EM = hits / total
         logging.info(f"S: {get_model(model).training_steps} Validation Loss: {sum(loss_list) / len(loss_list)}")
         logging.info(f"Validation EM: {EM}")
+        if self.config['log_results']:
+            outf.close()
         if EM > self.best_em and not self.config['test_only']:
             logging.info(f"{EM} ---> New BEST!")
             self.best_em = EM
@@ -482,16 +482,111 @@ class Trainer:
                                                                f"{timestamp()}_{socket.gethostname()}")
             self.best_ckpt_name = saved_name
             torch.save(saveable_model, saved_name)
-        else:
-            self.best_em = EM
-            serializable_model_name = self.config['reader_transformer_type'].replace("/", "_")
-            saveable_model = get_model(model)
-            saved_name = os.path.join(self.config['save_dir'], f"generative_reader_"
-                                                               f"EM{EM:.4f}_"
-                                                               f"S{get_model(model).training_steps}_"
-                                                               f"M{serializable_model_name}_"
-                                                               f"{timestamp()}_{socket.gethostname()}_worse")
-            self.best_ckpt_name = saved_name
-            torch.save(saveable_model, saved_name)
         model.train()
         return EM
+
+    def load_data(self):
+        config = self.config
+
+        include_passage_masks = config["fusion_strategy"] == "passages"
+
+        model_name = config['reader_transformer_type']
+        model_name = model_name if model_name == 't5-small' else ""
+
+        train = None
+        val = None
+        test = None
+
+        if config['cached_data'] is None:
+            if config['data_size'] <= 0 and config['test_only']:
+                # if test only and limit for data size was not set reduce the amount of data
+                config["data_size"] = 10_000
+
+            data = MT5Dataset(config["data"],
+                              tokenizer=self.tokenizer,
+                              db_multi=self.db,
+                              model_name=model_name,
+                              data_size=config["data_size"],  # limit number of examples for debugging
+                              preprocess=config["preprocess"],
+                              langs=config["languages"],
+                              cache_dir=config["cache_data"],
+                              context_length=config["context_per_language"],
+                              max_len=config["max_len"],
+                              include_golden_passage=config["include_golden_passage"],
+                              only_gt_passages=config["only_gt_passages"],
+                              include_passage_masks=include_passage_masks,
+                              preprocessing_truncation=config["preprocessing_truncation"],
+                              is_training=True)
+
+            logging.info(f"Total data examples:{len(data)}")
+            # return splits (train, test, val?), irrespectively of split_ratio
+            splits = data.split(split_ratio=config['split_ratio'])
+            # splits = data.split(split_ratio=config['split_ratio'], stratified=True, strata_field='lang')
+            if len(splits) == 3:
+                train = splits[0]
+                val = splits[2]
+                test = splits[1]
+            elif len(splits) == 2:
+                train = splits[0]
+                val = splits[1]
+                test = None
+            elif config["test_only"]:
+                # should be an error
+                val = None
+                train = None
+                test = data
+            else:
+                raise RuntimeError("Something went wrong with data preparation")
+        else:
+            if not config['test_only']:
+                train = MT5Dataset(config["data"],
+                                   tokenizer=self.tokenizer,
+                                   db_multi=self.db,
+                                   model_name=model_name,
+                                   data_size=config["data_size"],  # limit number of examples for debugging
+                                   preprocess=config["preprocess"],
+                                   langs=config["languages"],
+                                   cache_dir=config["cache_data"],
+                                   cached_data_path=config['cached_data']['train'],
+                                   context_length=config["context_per_language"],
+                                   max_len=config["max_len"],
+                                   include_golden_passage=config["include_golden_passage"],
+                                   only_gt_passages=config["only_gt_passages"],
+                                   include_passage_masks=include_passage_masks,
+                                   preprocessing_truncation=config["preprocessing_truncation"],
+                                   is_training=True)
+                val = MT5Dataset(config["data"],
+                                 tokenizer=self.tokenizer,
+                                 db_multi=self.db,
+                                 model_name=model_name,
+                                 data_size=config["data_size"],  # limit number of examples for debugging
+                                 preprocess=config["preprocess"],
+                                 langs=config["languages"],
+                                 cache_dir=config["cache_data"],
+                                 cached_data_path=config['cached_data']['val'],
+                                 context_length=config["context_per_language"],
+                                 max_len=config["max_len"],
+                                 include_golden_passage=config["include_golden_passage"],
+                                 only_gt_passages=config["only_gt_passages"],
+                                 include_passage_masks=include_passage_masks,
+                                 preprocessing_truncation=config["preprocessing_truncation"],
+                                 is_training=True)
+            if 'test' in config['cached_data']:
+                test = MT5Dataset(config["data"],
+                                  cached_data_path=config['cached_data']['test'],
+                                  tokenizer=self.tokenizer,
+                                  db_multi=self.db,
+                                  model_name=model_name,
+                                  data_size=config["data_size"],  # limit number of examples for debugging
+                                  preprocess=config["preprocess"],
+                                  langs=config["languages"],
+                                  cache_dir=config["cache_data"],
+                                  context_length=config["context_per_language"],
+                                  max_len=config["max_len"],
+                                  include_golden_passage=config["include_golden_passage"],
+                                  only_gt_passages=config["only_gt_passages"],
+                                  include_passage_masks=include_passage_masks,
+                                  preprocessing_truncation=config["preprocessing_truncation"],
+                                  is_training=True)
+
+            return train, val, test
