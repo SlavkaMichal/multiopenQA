@@ -10,11 +10,9 @@ from transformers import PreTrainedTokenizer
 from transformers import MT5Tokenizer as Tokenizer
 from transformers import MT5TokenizerFast as TokenizerFast
 from typing import List, Tuple, Dict, AnyStr, Optional
-from random import sample
 from moqa.db import PassageDB
 from moqa.common import config
 import ipdb
-# from moqa.datasets.preprocessor import MKQAPrep
 import logging
 
 logging.basicConfig(
@@ -358,7 +356,7 @@ class MT5Dataset(Dataset):
         elif gt_index is not None:  # otherwise, initialize with golden passage
             selected_ids = [(gt_index, 'en')]
 
-            title, passage = self.db_multi.get_doc_text(gt_index+1, 'en', columns=["title", "passage"])
+            title, passage = self.db_multi.get_doc_text(gt_index, 'en', columns=["title", "passage"])
 
             titles = [self.tokenizer.encode(title, add_special_tokens=False)]
             titles_raw = [title]
