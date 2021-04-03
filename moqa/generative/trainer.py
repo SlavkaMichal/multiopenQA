@@ -403,10 +403,11 @@ class Trainer:
         total = 0
         hits = 0
         loss_list = []
-        if self.config['log_results']:
+        if optimizer_dict is None:
             import csv
             model_type = self.config['reader_transformer_type'].replace("/", "_")
-            outf = open(f"results/gen_reader_{model_type}.csv", "w", encoding="utf-8")
+            steps = get_model(model).training_steps
+            outf = open(f"data/results/gen_reader_{model_type}_{steps}.csv", "w", encoding="utf-8")
             csvw = csv.writer(outf, delimiter=',')
             csvw.writerow(["Correct", "Question", "Predicted Answer", "GT Answer", "Input"])
         for i, batch in it:
@@ -451,7 +452,7 @@ class Trainer:
                     metric_fn=exact_match_score, prediction=predicted_answers[i],
                     ground_truths=batch.answers[i])
                 hits += int(hit)
-                if self.config['log_results']:
+                if optimizer_dict is None:
                     csvw.writerow([
                         hit,
                         batch.question[i],
@@ -465,7 +466,7 @@ class Trainer:
         EM = hits / total
         logging.info(f"S: {get_model(model).training_steps} Validation Loss: {sum(loss_list) / len(loss_list)}")
         logging.info(f"Validation EM: {EM}")
-        if self.config['log_results']:
+        if optimizer_dict is None:
             outf.close()
         if EM > self.best_em and not self.config['test_only']:
             logging.info(f"{EM} ---> New BEST!")
@@ -498,6 +499,7 @@ class Trainer:
         test = None
 
         if config['cached_data'] is None:
+            logging.info("Loading from cache")
             if config['data_size'] <= 0 and config['test_only']:
                 # if test only and limit for data size was not set reduce the amount of data
                 config["data_size"] = 10_000
@@ -538,6 +540,7 @@ class Trainer:
             else:
                 raise RuntimeError("Something went wrong with data preparation")
         else:
+            logging.info("Loading from splits")
             if not config['test_only']:
                 train = MT5Dataset(config["data"],
                                    tokenizer=self.tokenizer,

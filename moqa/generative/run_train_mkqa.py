@@ -51,7 +51,7 @@ config = {
     'reader_tokenizer_type'    : 'google/mt5-small',
     'reader_transformer_type'  : 'google/mt5-small',
     'reader_max_input_length'  : None,
-    'pretrained_model'         : 'data/models/generative_reader_EM0.5339_S3406_Mgoogle_mt5-small_None_pcknot4',
+    'pretrained_model'         : None, #'data/models/generative_reader_EM0.5339_S3406_Mgoogle_mt5-small_None_pcknot4',
     'load_optimizer_state_dict': False,
     #    'cache_transformers'      : '../../data/cache/Transformers',
     'cache_transformers'       : 'data/cache/Transformers',
@@ -60,12 +60,12 @@ config = {
     'include_golden_passage'   : False,
     'only_gt_passages'         : False,
     'preprocessing_truncation' : 'truncate_whole_input',
-    'fp16'                     : True,
+    'fp16'                     : False,
 
     'save_dir'                 : 'data/models',
     'results'                  : 'data/results',
     'log_results'              : True,
-    'save_em_threshold'        : 0.9,
+    'save_em_threshold'        : 0.4,
     'languages'                : languages,
 
     'validation_batch_size'    : 1,
@@ -108,7 +108,6 @@ if __name__ == "__main__":
     # os.mkdir(config["cache_data"])
 
     seed = randint(0, 10_000)
-    seed = 9613
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)

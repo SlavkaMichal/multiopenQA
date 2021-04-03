@@ -62,7 +62,7 @@ class MT5Dataset(Dataset):
                  preprocessing_truncation="truncate_only_passages",
                  include_passage_masks=False,
                  use_cache=True,
-                 cached_data_dir=None,
+                 cached_data_path=None,
                  init_examples=True,
                  cache_dir='data/cache/generative', **kwargs):
 
@@ -77,7 +77,7 @@ class MT5Dataset(Dataset):
         self.max_len = tokenizer.model_max_length if max_len is None else max_len
         self.is_training = is_training
         self.use_cache = use_cache
-        self.cached_data_dir = cached_data_dir
+        self.cached_data_path = cached_data_path
         self.context_size = context_length
         self.include_golden_passage = include_golden_passage
         self.only_gt_passages = only_gt_passages
@@ -119,8 +119,8 @@ class MT5Dataset(Dataset):
             super().__init__(examples, fields, **kwargs)
 
     def create_preprocessed_name(self):
-        if self.cached_data_dir is not None:
-            return self.cached_data_dir
+        if self.cached_data_path is not None:
+            return self.cached_data_path
         without_psg_suffix = f"_withoutpassages" if not self.include_golden_passage else ""
         with_psg_masks = "_with_passage_masks" if self.include_passage_masks else ""
         model_name = f"_{self.model_name}" if self.model_name else ""
