@@ -358,8 +358,9 @@ if __name__ == "__main__":
     parser.add_argument('search-with-title', type=bool, default=False)
     parser.add_argument('languages', type=str, default='opus-mul',
                         choices=['opus-mul', 'mkqa-lucene', 'mlqa', 'mlqa-mkqa'])
-    parser.add_argument('translate', type=bool, default=True)
-    parser.add_argument('retrieval', type=bool, default=True)
+    parser.add_argument('translate', action='store_ture')
+    parser.add_argument('retrieval', action='store_ture')
+    parser.add_argument('test', action='store_ture')
 
     parser.add_argument('dataset', type=str, default='mkqa', choices=['mkqa', 'mlqa'])
     parser.add_argument('mkqa_split_ratio', type=float, default=[], nargs='+')
