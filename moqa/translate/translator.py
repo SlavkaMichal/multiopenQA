@@ -62,11 +62,11 @@ class Translator:
                                  'de-no', 'no-de', 'ko-en']
 
         # Azure translator setup
-        key_var_name = 'AZURE_KEY'
-        if not key_var_name in os.environ:
-            raise RuntimeError('Please set/export the environment variable: {}'.format(key_var_name))
+        self.key_var_name = 'AZURE_KEY'
+        if not self.key_var_name in os.environ:
+            self.azure_key = None
         else:
-            self.azure_key = os.environ[key_var_name]
+            self.azure_key = os.environ[self.key_var_name]
 
         endpoint = 'https://api.cognitive.microsofttranslator.com/'
         path = '/translate'
@@ -107,7 +107,7 @@ class Translator:
             self.translators[translator] = self.init_translator(translator)
 
         with torch.no_grad():
-            input = self.translators[translator].tokenizer(text, return_tensors='pt', padding=True)
+            input = self.translators[translator].tokenizer(text, return_tensors='pt', padding=True).to(self.device)
             output = self.translators[translator].generate(**input)
         translations = [self.translators[translator].decode(indeces, skip_special_tokens=True) for indeces in output]
         return translations
@@ -127,8 +127,8 @@ class Translator:
 
         if src_lang not in self.opus_mul_langs + ['en']:
             raise NotImplementedError(f"Language {src_lang} is not supported.")
-        if set(dst_langs).intersection(set(dst_langs)):
-            raise NotImplementedError(f"Cannot translate to: {set(dst_langs).intersection(set(dst_langs))}")
+        # if set(dst_langs).intersection(set(dst_langs)):
+        #     raise NotImplementedError(f"Cannot translate to: {set(dst_langs).intersection(set(dst_langs))}")
 
         translations = {}
         if src_lang != 'en':
@@ -193,6 +193,8 @@ class Translator:
         return self.translate_azure(text, dst_lang='ko', src_lang=src_lang)
 
     def translate_azure(self, text, dst_lang, src_lang):
+        if self.azure_key == None:
+            raise RuntimeError('Please set/export the environment variable: {}'.format(self.key_var_name))
         if type(dst_lang) == list:
             params = {
                 'api-version': '3.0',

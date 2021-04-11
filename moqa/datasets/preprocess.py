@@ -50,7 +50,7 @@ class Sample(TypedDict):
 
 
 def main(args):
-    device = 'gpu' if torch.cuda.is_available() else 'cpu'
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     preprocessor = Preprocessor(topk=args.topk,
                                 mlqa_path=args.mlqa_path,
                                 mkqa_path=args.mkqa_path,
@@ -61,7 +61,11 @@ def main(args):
                                 test=args.test,
                                 device=device)
 
-    preprocessor.preprocess(args.dataset, args.mkqa_split_ratio, args.data_file)
+    try:
+        preprocessor.preprocess(args.dataset, args.mkqa_split_ratio, args.save_file)
+    except Exception as e:
+        print(e)
+        ipdb.post_mortem()
 
 
 class Preprocessor:
@@ -90,18 +94,11 @@ class Preprocessor:
                  test=False,
                  device='cpu'):
 
-        self.languages = {
-            'opus-mul'   : self.translator.opus_mul_langs + ['en'],
-            'mkqa-lucene': list(self.MKQA_LUCENE_LANGS),
-            'mlqa'       : list(self.MLQA_LANGS),
-            'mlqa-mkqa'  : list(self.MLQA_LANGS.intersection(self.MKQA_LUCENE_LANGS)),
-            }
 
         self.mlqa_path = mlqa_path
         self.mkqa_path = mkqa_path
         self.search_with_title = search_with_title
         self.search_field = 'context_title' if search_with_title else 'context'
-        self.langs = self.languages[langs]
         self.topk = topk
         self.device = device
         self.translate = translate
@@ -110,7 +107,13 @@ class Preprocessor:
 
         self.searcher = Searcher()
         self.translator = Translator(device=self.device)
-        self.translate_to = []
+        self.languages = {
+            'opus-mul'   : self.translator.opus_mul_langs + ['en'],
+            'mkqa-lucene': list(self.MKQA_LUCENE_LANGS),
+            'mlqa'       : list(self.MLQA_LANGS),
+            'mlqa-mkqa'  : list(self.MLQA_LANGS.intersection(self.MKQA_LUCENE_LANGS)),
+            }
+        self.langs = self.languages[langs]
 
         # map dpr by id
         self.dpr_map = {}
@@ -123,7 +126,7 @@ class Preprocessor:
 
         for lang in self.langs:
             # add indexes
-            index_dir = self.searcher.get_index_dir(lang)
+            index_dir = self.searcher.get_index_name(lang)
             self.searcher.addLang(lang, index_dir=index_dir)
             logging.info(f"Lang: {lang}, Index directory: {index_dir}")
 
@@ -153,11 +156,15 @@ class Preprocessor:
     def save_samples(self, samples: List[Sample], data_file, dataset, split):
         data_file = data_file if data_file is not None else self.get_data_name(dataset, split)
         logging.info(f"Saving {dataset} {split} set into {data_file}")
-        with jl.Writer(data_file) as writer:
+        with open(data_file, 'w') as fp:
+            writer = jl.Writer(fp)
             logging.info(f"Saving: {data_file}")
             writer.write_all(samples)
+            writer.close()
 
     def preprocess(self, dataset, mkqa_split_ratio=None, data_file=None) -> List[Dict]:
+        if self.test:
+            ipdb.set_trace()
         if dataset == 'mkqa':
             samples = self.process_mkqa(mkqa_split_ratio)
             if 'train' in samples:
@@ -167,7 +174,7 @@ class Preprocessor:
             if 'test' in samples:
                 self.save_samples(samples['test'], data_file, dataset, 'TEST')
             if 'no_answer' in samples:
-                self.save_samples(samples['test'], data_file, dataset, 'NO_ANSWER')
+                self.save_samples(samples['no_answer'], data_file, dataset, 'NO_ANSWER')
         elif dataset == 'mlqa':
             num_files = len(self.mlqa_dev_files) * 2
             i = 1
@@ -196,11 +203,12 @@ class Preprocessor:
             'gt_index'           : None,
             'hard_negative_index': None}
         if mkqa_sample['example_id'] in self.dpr_map and self.dpr_map[mkqa_sample['example_id']]['is_mapped']:
-            dpr_map = self.dpr_map[['example_id']]
+            dpr_map = self.dpr_map[mkqa_sample['example_id']]
             mkqa_data['dpr_map'] = True
             # mapping to dpr is one index off
             mkqa_data['gt_index'] = dpr_map['contexts']['positive_ctx'] + 1
-            mkqa_data['hard_negative_ctx'] = dpr_map['contexts']['hard_negative_ctx'] + 1
+            negative = dpr_map['contexts']['hard_negative_ctx']
+            mkqa_data['hard_negative_index'] = negative+1 if negative is not None else None
 
         answers = {}
         queries = {}
@@ -209,8 +217,7 @@ class Preprocessor:
             # add aliases to correct answers
             answers[lang] += [alias for answer in mkqa_sample['answers'][lang]
                               if 'aliases' in answer for alias in answer['aliases']]
-            query = {'text': mkqa_sample['queries'][lang], 'retrieval': [], 'translations': {}}
-            queries[lang] = {lang: query}
+            queries[lang] = {'text': mkqa_sample['queries'][lang], 'retrieval': [], 'translations': {}}
 
         sample: Sample = {
             'mlqa'      : None,
@@ -253,8 +260,6 @@ class Preprocessor:
                 if self.test:
                     break
 
-        if self.test:
-            ipdb.set_trace()
         self.translate_samples(samples)
         self.search_paragraphs(samples)
 
@@ -308,8 +313,6 @@ class Preprocessor:
                 pbar.update()
                 if self.test:
                     break
-        if self.test:
-            ipdb.set_trace()
         self.translate_samples(samples)
         self.search_paragraphs(samples)
         return samples
@@ -319,10 +322,11 @@ class Preprocessor:
             return []
         with tqdm(total=len(samples), desc='translating...') as pbar:
             for sample in samples:
-                for lang, query in sample['queries']:
+                for lang, query in sample['queries'].items():
                     text = query['text']
                     translations = self.translator.translate_opus_mul(text, lang, dst_langs=self.langs)
-                    query['translations'].update(translations)
+                    for lang, tr_query in translations.items():
+                        query['translations'][lang] = {'text':translations[lang], 'retrieval': []}
                 pbar.update()
 
         return samples
@@ -334,14 +338,14 @@ class Preprocessor:
             for sample in samples:
                 for lang, query in sample['queries'].items():
                     query['retrieval'] = self.search_query(query['text'], lang)
-                    for tr_lang, tr_query in query['translations']:
+                    for tr_lang, tr_query in query['translations'].items():
                         tr_query['retrieval'] = self.search_query(tr_query['text'], tr_lang)
                 pbar.update()
         return samples
 
     def search_query(self, query, lang):
         docs = self.searcher.query(query, lang, self.topk, field=self.search_field)
-        return [{'score': doc.score, 'lang': lang, 'id': doc.id} for doc in docs]
+        return [{'score': doc.score, 'id': doc.id} for doc in docs]
 
     def add_korean_translations(self, samples):
         pass
@@ -352,19 +356,19 @@ class Preprocessor:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Preprocessing datasets")
-    parser.add_argument('topk', type=int, default=20)
-    parser.add_argument('mlqa-path', type=str, default=Preprocessor.MLQA_PATH)
-    parser.add_argument('mkqa-path', type=str, default=Preprocessor.MKQA_PATH)
-    parser.add_argument('search-with-title', type=bool, default=False)
-    parser.add_argument('languages', type=str, default='opus-mul',
+    parser.add_argument('--topk', type=int, default=20)
+    parser.add_argument('--mlqa-path', type=str, default=Preprocessor.MLQA_PATH)
+    parser.add_argument('--mkqa-path', type=str, default=Preprocessor.MKQA_PATH)
+    parser.add_argument('--search-with-title', type=bool, default=False)
+    parser.add_argument('--langs', type=str, default='opus-mul',
                         choices=['opus-mul', 'mkqa-lucene', 'mlqa', 'mlqa-mkqa'])
-    parser.add_argument('translate', action='store_ture')
-    parser.add_argument('retrieval', action='store_ture')
-    parser.add_argument('test', action='store_ture')
+    parser.add_argument('--no-translation', dest='translate', action='store_false')
+    parser.add_argument('--not-retrieval', dest='retrieval', action='store_false')
+    parser.add_argument('--test', action='store_true')
 
-    parser.add_argument('dataset', type=str, default='mkqa', choices=['mkqa', 'mlqa'])
-    parser.add_argument('mkqa_split_ratio', type=float, default=[], nargs='+')
-    parser.add_argument('save-file', type=str, default=None)
+    parser.add_argument('--dataset', type=str, default='mkqa', choices=['mkqa', 'mlqa'])
+    parser.add_argument('--mkqa_split_ratio', type=float, default=None, nargs='+')
+    parser.add_argument('--save-file', type=str, default=None)
 
     args = parser.parse_args()
     main(args)
