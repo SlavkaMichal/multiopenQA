@@ -4,6 +4,7 @@ import os
 import socket
 import time
 
+from click import confirm
 import torch
 import torch.nn.functional as F
 import transformers
@@ -90,6 +91,9 @@ class Trainer:
         if test is not None:
             logging.info(f"Test data examples {len(test)}")
 
+        if not confirm("Do you want to continue?", default=True):
+            raise KeyboardInterrupt
+
         if not config["test_only"]:
             train_iter = Iterator(train,
                                   shuffle=True,
@@ -150,7 +154,7 @@ class Trainer:
 
             if config['pretrained_model'] is not None and config['load_optimizer_state_dict']:
                 optimizer.load_state_dict(model.optimizer_state_dict)
-                del(model.optimizer_state_dict)
+                del model.optimizer_state_dict
 
             # Init scheduler
             if self.config["scheduler_warmup_steps"] > 0:
@@ -188,6 +192,16 @@ class Trainer:
                 if hasattr(self, "best_ckpt_name"):
                     logging.info(f"Loading best checkpoint {self.best_ckpt_name}")
                     model = torch.load(self.best_ckpt_name, map_location=self.device)
+                if confirm("Save model parameters?", default=False):
+                    serializable_model_name = self.config['reader_transformer_type'].replace("/", "_")
+                    saveable_model = get_model(model)
+                    saved_name = os.path.join(self.config['save_dir'], f"generative_reader_"
+                                                                       f"last_"
+                                                                       f"S{get_model(model).training_steps}_"
+                                                                       f"M{serializable_model_name}_"
+                                                                       f"{timestamp()}_{socket.gethostname()}")
+                    self.best_ckpt_name = saved_name
+                    torch.save(saveable_model, saved_name)
 
         logging.info("#" * 50)
         if test is not None:
@@ -504,21 +518,31 @@ class Trainer:
                 # if test only and limit for data size was not set reduce the amount of data
                 config["data_size"] = 10_000
 
-            data = MT5Dataset(config["data"],
-                              tokenizer=self.tokenizer,
-                              db_multi=self.db,
-                              model_name=model_name,
-                              data_size=config["data_size"],  # limit number of examples for debugging
-                              preprocess=config["preprocess"],
-                              langs=config["languages"],
-                              cache_dir=config["cache_data"],
-                              context_length=config["context_per_language"],
-                              max_len=config["max_len"],
-                              include_golden_passage=config["include_golden_passage"],
-                              only_gt_passages=config["only_gt_passages"],
-                              include_passage_masks=include_passage_masks,
-                              preprocessing_truncation=config["preprocessing_truncation"],
-                              is_training=True)
+            data = MT5Dataset(
+                datafile=config["data"],
+                preprocess=config["preprocess"],
+                model_name=model_name,
+                tokenizer=self.tokenizer,
+                db_multi=self.db,  # database with passages
+                langs=config["languages"],
+                max_context_size=config["context_per_language"],
+                interactive=config["interactive"],
+                multi_lingual_query=config["multi_lingual_query"],  # use multiple languages per question
+                translated_query=config["translated_query"],  # use translated questions
+                include_golden_passage=config["include_golden_passage"],
+                use_dpr_golden=config["use_dpr_golden"],
+                # if available use dpr for golden passage if include_golden_passage is true
+                only_gt_passages=config["only_gt_passages"],
+                examples_per_sample=5,  # creates multiple version of a sample but in different languages
+                max_len=config["max_len"],
+                data_size=config["data_size"],  # limit number of examples for debugging
+                is_training=True,  # does not tokenize answers
+                preprocessing_truncation="truncate_only_passages",  # truncation strategy
+                include_passage_masks=include_passage_masks,
+                use_cache=True,  # use cached examples
+                cached_data_path=None,  #
+                cache_dir=config["cache_data"],
+                )
 
             logging.info(f"Total data examples:{len(data)}")
             # return splits (train, test, val?), irrespectively of split_ratio
@@ -542,54 +566,84 @@ class Trainer:
         else:
             logging.info("Loading from splits")
             if not config['test_only']:
-                train = MT5Dataset(config["data"],
-                                   tokenizer=self.tokenizer,
-                                   db_multi=self.db,
-                                   model_name=model_name,
-                                   data_size=config["data_size"],  # limit number of examples for debugging
+                train = MT5Dataset(config["data"]['train'],
                                    preprocess=config["preprocess"],
+                                   model_name=model_name,
+                                   tokenizer=self.tokenizer,
+                                   db_multi=self.db,  # database with passages
                                    langs=config["languages"],
-                                   cache_dir=config["cache_data"],
-                                   cached_data_path=config['cached_data']['train'],
-                                   context_length=config["context_per_language"],
-                                   max_len=config["max_len"],
+                                   max_context_size=config["context_per_language"],
+                                   interactive=config["interactive"],
+                                   multi_lingual_query=config["multi_lingual_query"],
+                                   # use multiple languages per question
+                                   translated_query=config["translated_query"],  # use translated questions
                                    include_golden_passage=config["include_golden_passage"],
+                                   use_dpr_golden=config["use_dpr_golden"],
+                                   # if available use dpr for golden passage if include_golden_passage is true
                                    only_gt_passages=config["only_gt_passages"],
+                                   examples_per_sample=5,
+                                   # creates multiple version of a sample but in different languages
+                                   max_len=config["max_len"],
+                                   data_size=config["data_size"],  # limit number of examples for debugging
+                                   is_training=True,  # does not tokenize answers
+                                   preprocessing_truncation="truncate_only_passages",  # truncation strategy
                                    include_passage_masks=include_passage_masks,
-                                   preprocessing_truncation=config["preprocessing_truncation"],
-                                   is_training=True)
-                val = MT5Dataset(config["data"],
-                                 tokenizer=self.tokenizer,
-                                 db_multi=self.db,
-                                 model_name=model_name,
-                                 data_size=config["data_size"],  # limit number of examples for debugging
+                                   use_cache=True,  # use cached examples
+                                   cached_data_path=None if 'train' not in config['cached_data'] else
+                                   config['cached_data']['train'],  #
+                                   cache_dir=config["cache_data"])
+                val = MT5Dataset(config["data"]['val'],
                                  preprocess=config["preprocess"],
+                                 model_name=model_name,
+                                 tokenizer=self.tokenizer,
+                                 db_multi=self.db,  # database with passages
                                  langs=config["languages"],
-                                 cache_dir=config["cache_data"],
-                                 cached_data_path=config['cached_data']['val'],
-                                 context_length=config["context_per_language"],
-                                 max_len=config["max_len"],
+                                 max_context_size=config["context_per_language"],
+                                 interactive=config["interactive"],
+                                 multi_lingual_query=config["multi_lingual_query"],
+                                 # use multiple languages per question
+                                 translated_query=config["translated_query"],  # use translated questions
                                  include_golden_passage=config["include_golden_passage"],
+                                 use_dpr_golden=config["use_dpr_golden"],
+                                 # if available use dpr for golden passage if include_golden_passage is true
                                  only_gt_passages=config["only_gt_passages"],
+                                 examples_per_sample=5,
+                                 # creates multiple version of a sample but in different languages
+                                 max_len=config["max_len"],
+                                 data_size=config["data_size"],  # limit number of examples for debugging
+                                 is_training=True,  # does not tokenize answers
+                                 preprocessing_truncation="truncate_only_passages",  # truncation strategy
                                  include_passage_masks=include_passage_masks,
-                                 preprocessing_truncation=config["preprocessing_truncation"],
-                                 is_training=True)
-            if 'test' in config['cached_data']:
-                test = MT5Dataset(config["data"],
-                                  cached_data_path=config['cached_data']['test'],
-                                  tokenizer=self.tokenizer,
-                                  db_multi=self.db,
-                                  model_name=model_name,
-                                  data_size=config["data_size"],  # limit number of examples for debugging
+                                 use_cache=True,  # use cached examples
+                                 cached_data_path=None if 'val' not in config['cached_data'] else
+                                 config['cached_data']['val'],  #
+                                 cache_dir=config["cache_data"])
+            if 'test' in config['data']:
+                test = MT5Dataset(config["data"]['test'],
                                   preprocess=config["preprocess"],
+                                  model_name=model_name,
+                                  tokenizer=self.tokenizer,
+                                  db_multi=self.db,  # database with passages
                                   langs=config["languages"],
-                                  cache_dir=config["cache_data"],
-                                  context_length=config["context_per_language"],
-                                  max_len=config["max_len"],
+                                  max_context_size=config["context_per_language"],
+                                  interactive=config["interactive"],
+                                  multi_lingual_query=config["multi_lingual_query"],
+                                  # use multiple languages per question
+                                  translated_query=config["translated_query"],  # use translated questions
                                   include_golden_passage=config["include_golden_passage"],
+                                  use_dpr_golden=config["use_dpr_golden"],
+                                  # if available use dpr for golden passage if include_golden_passage is true
                                   only_gt_passages=config["only_gt_passages"],
+                                  examples_per_sample=5,
+                                  # creates multiple version of a sample but in different languages
+                                  max_len=config["max_len"],
+                                  data_size=config["data_size"],  # limit number of examples for debugging
+                                  is_training=False,  # does not tokenize answers
+                                  preprocessing_truncation="truncate_only_passages",  # truncation strategy
                                   include_passage_masks=include_passage_masks,
-                                  preprocessing_truncation=config["preprocessing_truncation"],
-                                  is_training=True)
+                                  use_cache=True,  # use cached examples
+                                  cached_data_path=None if 'test' not in config['cached_data'] else
+                                  config['cached_data']['test'],  #
+                                  cache_dir=config["cache_data"])
 
             return train, val, test

@@ -97,7 +97,7 @@ class Retriever(object):
             self.b=b
 
     @classmethod
-    def get_index_name(self, lang: AnyStr, index_dir: AnyStr = None):
+    def get_index_name(self, lang: str, index_dir: AnyStr = None):
         if index_dir is not None:
             idx_dir = index_dir
         else:
@@ -107,7 +107,7 @@ class Retriever(object):
         return idx_dir
 
 class Indexer(Retriever):
-    def __init__(self, lang: AnyStr, db: PassageDB, analyzer: AnyStr, index_dir=None, ram_size=2048 ):
+    def __init__(self, lang: str, db: PassageDB, analyzer: AnyStr, index_dir=None, ram_size=2048):
         """ Returns scored documents in multiple languages.
 
         Parameters:

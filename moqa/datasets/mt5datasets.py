@@ -3,9 +3,10 @@ import random
 import string
 import time
 
-from jsonlines import jsonlines
-from torchtext.data import Dataset, Field, RawField, Example, NestedField, Iterator
-from tqdm import tqdm
+from click import confirm
+import jsonlines
+import torchtext.data
+import tqdm
 from transformers import PreTrainedTokenizer
 from transformers import MT5Tokenizer as Tokenizer
 from transformers import MT5TokenizerFast as TokenizerFast
@@ -29,45 +30,74 @@ def main():
     from moqa.generative.trainer import Trainer
     with PassageDB('data/wiki/demo.db') as db:
         tokenizer = Trainer.init_tokenizer('google/mt5-small', 'data/cache/transformers')
-        data = MT5Dataset(datafile='data/mkqa/mkqa_dpr_da.jsonl',
-                          tokenizer=tokenizer,
-                          db_multi=db,
-                          langs=['da'],
-                          context_length=3,
-                          use_cache=False,
-                          cache_dir='data/cache/generative')
-        data_iter = Iterator(data, shuffle=True, sort=False, batch_size=1, train=False, repeat=False, device='cpu')
+        data = MT5Dataset(
+            datafile='data/preprocessed/TODO.jsonl',
+            preprocess=False,  # preprocess original dataset
+            model_name='google/mt5-small',
+            tokenizer=tokenizer,
+            db_multi=db,  # database with passages
+            langs=['en', 'it', 'de'],  # languages in an example
+            max_context_size=25,  # maximal amount of contexts per sample
+            interactive=True,
+            multi_lingual_query=True,  # use multiple languages per question
+            translated_query=False,  # use translated questions
+            include_golden_passage=True,  # if true one passage containing answer string will be added if found
+            use_dpr_golden=True,  # if available use dpr for golden passage if include_golden_passage is true
+            only_gt_passages=False,  # make sure that all passages contain answer
+            examples_per_sample=5,  # creates multiple version of a sample but in different languages
+            max_len=270,  # tokenized input truncation
+            data_size=10,  # if lower than zero than does nothing
+            is_training=True,  # does not tokenize answers
+            preprocessing_truncation="truncate_only_passages",  # truncation strategy
+            include_passage_masks=False,  # unnecessary
+            use_cache=True,  # use cached examples
+            cached_data_path=None,  #
+            init_examples=True,  # if false only class will be created and data won't be loaded
+            cache_dir='data/cache/generative'
+            )
+        data_iter = torchtext.data.Iterator(data,
+                                            shuffle=True,
+                                            sort=False,
+                                            batch_size=1,
+                                            train=False,
+                                            repeat=False,
+                                            device='cpu')
         for batch in data_iter:
             print("Batch:")
             print(batch)
 
 
-class MT5Dataset(Dataset):
+class MT5Dataset(torchtext.data.Dataset):
     def __init__(self,
                  datafile: AnyStr,
-                 preprocess,
-                 model_name,
+                 preprocess: bool,  # preprocess original dataset
+                 model_name: str,
                  tokenizer: PreTrainedTokenizer,
-                 db_multi: Optional[PassageDB],
-                 langs: List[str],
-                 context_length,
-                 answer_limit=1,
-                 max_len=None,
-                 data_size=-1,  # if lower than zero than does nothing
-                 is_training=True,
-                 include_golden_passage=True,
-                 only_gt_passages=False,
-                 preprocessing_truncation="truncate_only_passages",
-                 include_passage_masks=False,
-                 use_cache=True,
-                 cached_data_path=None,
-                 init_examples=True,
+                 db_multi: Optional[PassageDB],  # database with passages
+                 langs: List[str],  # languages in an example
+                 max_context_size: int,  # maximal amount of contexts per sample
+                 interactive: bool,
+                 # if true, program will stop execution on multiple places and confirmation will be required to continue
+                 multi_lingual_query: bool,  # use multiple languages per question
+                 translated_query: bool,  # use translated questions
+                 include_golden_passage: bool,  # if true one passage containing answer string will be added if found
+                 use_dpr_golden: bool,  # if available use dpr for golden passage if include_golden_passage is true
+                 only_gt_passages: bool,  # make sure that all passages contain answer
+                 examples_per_sample: int,  # creates multiple version of a sample but in different languages
+                 max_len: Optional[int] = None,  # tokenized input truncation
+                 data_size: int = -1,
+                 # if lower than zero than does nothing otherwise limits number of processed samples for testing
+                 is_training: bool = True,  # does not tokenize answers
+                 preprocessing_truncation="truncate_only_passages",  # truncation strategy
+                 include_passage_masks: bool = False,  # unnecessary
+                 use_cache=True,  # use cached examples
+                 cached_data_path=None,  #
+                 init_examples=True,  # if false only class will be created and data won't be loaded
                  cache_dir='data/cache/generative', **kwargs):
 
-        self.answer_limit = answer_limit
-        self.langs = langs
+        self.langs = sorted(langs)
         self.cache_dir = cache_dir
-        self.datafile = datafile
+        self.datafile: AnyStr = datafile
         self.model_name = model_name
         self.preprocess = preprocess
         self.tokenizer = tokenizer
@@ -76,24 +106,35 @@ class MT5Dataset(Dataset):
         self.is_training = is_training
         self.use_cache = use_cache
         self.cached_data_path = cached_data_path
-        self.context_size = context_length
+        self.multi_lingual_query = multi_lingual_query
+        self.translated_query = translated_query
         self.include_golden_passage = include_golden_passage
+        self.use_dpr_golden = use_dpr_golden
         self.only_gt_passages = only_gt_passages
+        self.examples_per_sample = examples_per_sample
         self.include_passage_masks = include_passage_masks
         self.preprocessing_truncation = preprocessing_truncation
         self.data_size = data_size
+        self.interactive = interactive
 
-        fields = self.prepare_fields(tokenizer.pad_token_id)
+        logging.info(f"Max number of contexts: {max_context_size}")
+        self.context_size = max_context_size // len(self.langs)
+        logging.info(f"Number of contexts per language: {self.context_size}")
+        logging.info(f"Languages: {self.langs}")
+
+        fields: Dict[str, torchtext.data.Field] = self.prepare_fields(tokenizer.pad_token_id)
         if not include_passage_masks and 'doc_mask' in fields:
             del fields['doc_mask']
         self.fields = fields
-        self.fields_tuple = list(fields.items())
 
         if init_examples:
             if use_cache:
                 preprocessed_f = self.create_preprocessed_name()
+                logging.info(f"Cache file: {preprocessed_f}")
                 if not os.path.exists(preprocessed_f):
                     logging.info(f"{preprocessed_f} not found! Creating new...")
+                    if self.interactive and not confirm("Continue?", default=True):
+                        raise KeyboardInterrupt
 
                     s_time = time.time()
                     examples = self.get_example_list()
@@ -120,16 +161,18 @@ class MT5Dataset(Dataset):
         if self.cached_data_path is not None:
             return self.cached_data_path
         without_psg_suffix = f"_withoutpassages" if not self.include_golden_passage else ""
+        multi_lingual = f"_multilingual" if self.multi_lingual_query else "_monolingual"
+        translated = f"_translated" if self.translated_query else "_mkqa_translations"
         with_psg_masks = "_with_passage_masks" if self.include_passage_masks else ""
         model_name = f"_{self.model_name}" if self.model_name else ""
         gt_only = "_gt_only" if self.only_gt_passages else ""
-        answer_limit = f"_answers_{self.answer_limit}" if self.answer_limit != -1 else ""
         preprocessed_f_noext = os.path.join(self.cache_dir, os.path.basename(
-            self.datafile)) + f"_mkqa" \
+            self.datafile)) + f"_" \
                               f"_C{self.context_size}" \
-                              f"{answer_limit}" \
                               f"{with_psg_masks}" \
                               f"{gt_only}" \
+                              f"{multi_lingual}" \
+                              f"{translated}" \
                               f"{without_psg_suffix}" \
                               f"_{self.preprocessing_truncation}" \
                               f"{model_name}"
@@ -138,31 +181,29 @@ class MT5Dataset(Dataset):
 
     @staticmethod
     def save(preprocessed_f: string, raw_examples: List[Dict]):
-        with jsonlines.open(preprocessed_f, "w") as wf:
-            for e in tqdm(raw_examples, desc=f"Saving processed examples"):
+        with jsonlines.jsonlines.open(preprocessed_f, "w") as wf:
+            for e in tqdm.tqdm(raw_examples, desc=f"Saving processed examples"):
                 wf.write(e)
 
-    def load(self, preprocessed_f: string, fields: List[Tuple[str, RawField]], **kwargs) -> List[Example]:
-        with jsonlines.open(preprocessed_f, "r") as raw_examples:
+    def load(self,
+             preprocessed_f: string,
+             fields: Dict[str, torchtext.data.RawField],
+             **kwargs) -> List[torchtext.data.Example]:
+        with jsonlines.jsonlines.open(preprocessed_f, "r") as raw_examples:
             return self.load_iterable(fields, raw_examples, **kwargs)
 
     def load_iterable(self, fields, raw_examples, include_passage_masks=False):
         fields = list(fields.items())
         examples = []
-        skip = 6
-        logging.info(f"Skipping every {skip} element.")
-        if len(self.langs) % skip == 0:
-            raise RuntimeError("Skip value should not be a divider or multiple of number of languages!")
-        for i, e in tqdm(enumerate(raw_examples), desc="Loading preprocessed data..."):
-            if not self.gt_only and i % skip == 0 :
-                continue
+        for i, e in tqdm.tqdm(enumerate(raw_examples), desc="Loading preprocessed data..."):
             example = self.torchtext_example(e, fields, include_passage_masks)
             examples.append(example)
-            if self.data_size > 0 and self.data_size <= i:
+            if 0 < self.data_size <= i:
                 break
         return examples
 
-    def torchtext_example(self, e, fields, include_passage_masks, choose_random_target=False):
+    @staticmethod
+    def torchtext_example(e, fields, include_passage_masks, choose_random_target=False):
         target = e["target"] if not choose_random_target else random.choice(e["target"])
         # sources = [ s[:300-1] + [self.tokenizer.eos_token_id] for s in sample(e["sources"], 30) ]
         _preprocessed_example = [
@@ -177,7 +218,7 @@ class MT5Dataset(Dataset):
             [1] * len(target[0])]
         if not include_passage_masks:
             del _preprocessed_example[-3]
-        example = Example.fromlist(_preprocessed_example, fields)
+        example = torchtext.data.Example.fromlist(_preprocessed_example, fields)
         return example
 
     def get_example_list(self):
@@ -217,16 +258,16 @@ class MT5Dataset(Dataset):
             with open(self.datafile, encoding="utf-8") as f:
                 num_lines = sum(1 for _ in f)
             logging.info(f"Processing samples from {self.datafile}...")
-            with jsonlines.open(self.datafile) as fp:
-                for idx, sample in tqdm(enumerate(fp), desc="Processing samples", total=num_lines):  # TODO: parallelize?
+            with jsonlines.jsonlines.open(self.datafile) as fp:
+                for idx, sample in tqdm.tqdm(enumerate(fp), desc="Processing samples",
+                                             total=num_lines):  # TODO: parallelize?
                     if self.is_training:
                         examples += self.process_sample(sample)
                     else:
                         # Do not use same question with multiple answers in validation
                         examples += [self.process_sample(sample)[0]]
 
-                    if idx < 20 and len(examples) == 1:
-                        # less than 20 because len(exmples) won't be evaluated every iteration if some somples are rejected
+                    if idx < 4 and len(examples) == 1:
                         logging.info("Example of input formats:")
                         src_example1 = " ".join(self.tokenizer.convert_ids_to_tokens(examples[0]["sources"][0]))
                         if len(examples[0]["sources"]) > 1:
@@ -247,22 +288,26 @@ class MT5Dataset(Dataset):
         return examples
 
     @staticmethod
-    def prepare_fields(pad_t):
-        WORD_field = Field(use_vocab=False, batch_first=True, sequential=True, pad_token=pad_t)
-        WORD_nested_field = NestedField(Field(use_vocab=False, batch_first=True, sequential=True, pad_token=pad_t))
-        PAD_field = Field(use_vocab=False, batch_first=True, sequential=True, pad_token=0)
-        PAD_nested_field = NestedField(Field(use_vocab=False, batch_first=True, sequential=True, pad_token=0))
-        MASK_nested_field = NestedField(Field(use_vocab=False, batch_first=True, sequential=True, pad_token=1.))
+    def prepare_fields(pad_t) -> Dict[str, torchtext.data.Field]:
+        WORD_field = torchtext.data.Field(use_vocab=False, batch_first=True, sequential=True, pad_token=pad_t)
+        WORD_nested_field = torchtext.data.NestedField(WORD_field)
+        PAD_field = torchtext.data.Field(use_vocab=False, batch_first=True, sequential=True, pad_token=0)
+        PAD_nested_field = torchtext.data.NestedField(PAD_field)
+        MASK_field = torchtext.data.Field(use_vocab=False, batch_first=True, sequential=True, pad_token=1.)
+        MASK_nested_field = torchtext.data.NestedField(MASK_field)
+        TGT_WORD_field = torchtext.data.Field(use_vocab=False, batch_first=True, sequential=True, pad_token=pad_t)
+        TGT_PAD_field = torchtext.data.Field(use_vocab=False, batch_first=True, sequential=True, pad_token=0)
+
         fields = {
-            'id'         : RawField(),
-            'question'   : RawField(),
-            'answers'    : RawField(),
-            'lang'       : RawField(),
+            'id'         : torchtext.data.RawField(),
+            'question'   : torchtext.data.RawField(),
+            'answers'    : torchtext.data.RawField(),
+            'lang'       : torchtext.data.RawField(),
             'src'        : WORD_nested_field,
             'src_mask'   : PAD_nested_field,
             'doc_mask'   : MASK_nested_field,
-            'target'     : WORD_field,
-            'target_mask': PAD_field,
+            'target'     : TGT_WORD_field,
+            'target_mask': TGT_PAD_field,
             }
         return fields
 
@@ -301,6 +346,10 @@ class MT5Dataset(Dataset):
             question_special_token = self.tokenizer.convert_tokens_to_ids(self.tokenizer.question_special_token)
             passage_special_token = self.tokenizer.convert_tokens_to_ids(self.tokenizer.passage_special_token)
             title_special_token = self.tokenizer.convert_tokens_to_ids(self.tokenizer.title_special_token)
+            if self.multi_lingual_query:
+                for question, passages_, titles_ in zip(question, passages, titles):
+                    pass
+
             for title, passage in zip(titles, passages):
                 question_and_title = [question_special_token] + question + \
                                      [title_special_token] + title + [passage_special_token]
@@ -334,176 +383,191 @@ class MT5Dataset(Dataset):
         :param sample: raw sample dictionary
         :return: numericalized sample(s), note that there can be more, as there can be more answers (or one
         multi-span answer in case of NQ, treated as more answers)
-        """
-        assert type(self.tokenizer) in [Tokenizer, TokenizerFast], f"Unsupported Tokenizer {type(self.tokenizer)}"
-        assert len(sample['answers']) >= len(self.langs), \
-                f"Number of languages in sample {len(sample['answers'])} is smaller than languages {len(self.langs)}"
+        [
+          "answers": {lang:[answer]}
+          "example_id",
+          "mkqa",
+          "mlqa",
+          "queries": {lang:{text,
+                            retrieval: [{id, score}],
+                            translations: {lang:text, retrieval: [{id, score}]},
+                            }
+                     }
+        ]
 
-        # get gt_index - index of golden passage, if available
-        gt_index = None
-        if "gt_index" in sample and sample["gt_index"] != -1:
-            gt_index = sample["gt_index"]
+        """
+
+        assert type(self.tokenizer) in [Tokenizer, TokenizerFast], f"Unsupported Tokenizer {type(self.tokenizer)}"
+        assert set(sample['answers']) >= set(self.langs), \
+            f"Number of languages in sample {len(sample['answers'])} is smaller than languages {len(self.langs)}"
+
+        answers = sample['answers']
 
         # if golden passage is not available, start with empty set of passages
-        if not self.include_golden_passage:
-            # unknown ground truth
-            selected_ids = []
-            titles = []
-            titles_raw = []
+        top_k_titles_raw = {}
+        top_k_titles_tokens = {}
+        selected_ids = []
+        top_k_passages_raw = {}
+        top_k_passages_tokens = {}
 
-            top_k_passages_tokens = []
-            top_k_passages_raw = []
-        elif gt_index is not None:  # otherwise, initialize with golden passage
-            selected_ids = [(gt_index, 'en')]
+        if self.only_gt_passages:
+            raise NotImplementedError("Only gt passages are not implemented!")
+        if self.translated_query:
+            raise NotImplementedError("Using translations is not currently supported!")
 
-            title, passage = self.db_multi.get_doc_text(gt_index, 'en', columns=["title", "passage"])
+        if self.include_golden_passage:
+            gt_lang = None
+            gt_index = None
+            gt_passage = None
+            gt_title = None
+            # add gt passage
+            # sample only one gt passage
+            langs_copy = self.langs.copy()
+            random.shuffle(langs_copy)
+            while gt_index is None and langs_copy:
+                # searching for gt paragraph
+                gt_lang = langs_copy.pop()
+                if self.use_dpr_golden and \
+                        gt_lang == 'en' and \
+                        sample['mkqa'] is not None and \
+                        sample['mkqa']['dpr_match']:
+                    # if dpr mapping is available use it!
+                    gt_index = sample['mkqa']['gt_index']
+                    gt_title, gt_passage = self.db_multi.get_doc_text(gt_index, gt_lang, columns=["title", "passage"])
+                    sample['mkqa']['title'] = gt_title
+                    sample['mkqa']['passage'] = gt_passage
+                    continue
 
-            titles = [self.tokenizer.encode(title, add_special_tokens=False)]
-            titles_raw = [title]
+                retrieval = sample['queries'][gt_lang]['retrieval']
+                for document in retrieval:
+                    if 'passage' not in document:
+                        # add document if it is missing
+                        gt_title, gt_passage = self.db_multi.get_doc_text(gt_index, gt_lang,
+                                                                          columns=["title", "passage"])
+                        document['passage'] = gt_passage
+                        document['title'] = gt_title
 
-            golden_passage = " " + passage
-            top_k_passages_tokens = [self.tokenizer.encode(golden_passage, add_special_tokens=False)]
-            top_k_passages_raw = [golden_passage]
+                    for answer in answers[gt_lang]:
+                        if answer in document['passage']:
+                            gt_index = document['id']
+                            break
+            # add gt passage to example
+            if gt_index is not None:
+                # if there is a gt passage add it
+                top_k_titles_tokens[gt_lang] = [self.tokenizer.encode(gt_title, add_special_tokens=False)]
+                top_k_titles_raw[gt_lang] = [gt_title]
 
-            if self.only_gt_passages:
-
-                question = sample['queries']['en']
-                question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
-
-                input_sequences, document_masks = self.assemble_input_sequences(question=question_tokens,
-                                                                                passages=top_k_passages_tokens,
-                                                                                titles=titles)
-                answers = sample['answers']['en'][:self.answer_limit]
-                target_sequences = self.assemble_target_sequences(answers=answers)
-
-                example = {
-                    "id"       : sample["example_id"],
-                    "question" : question,
-                    "lang"     : 'en',
-                    "answers"  : sample['answers']['en'],
-                    "sources"  : input_sequences,
-                    "doc_masks": document_masks,
-                    "target"   : target_sequences,
-                    }
-                return [example]
-        elif self.only_gt_passages:
-            # return empty list if sample does not contain gt passage
-            return []
-        else:
-            # gt passages are included but this sample does not contain one
-            # and there are not only gt passages
-            pass
+                golden_passage = " " + gt_passage
+                top_k_passages_tokens[gt_lang] = [self.tokenizer.encode(golden_passage, add_special_tokens=False)]
+                top_k_passages_raw[gt_lang] = [golden_passage]
+                selected_ids.append((gt_index, gt_lang))
 
         # take rest of the passages as top-k, if available
-        lang_tally = { }
-        number_of_contexts = len(self.langs) * self.context_size
-        for neg_ind in sorted(sample['retrieval'], key=lambda x: x['score'], reverse=True):
-            idx: int = neg_ind['id']
-            lang: str = neg_ind['lang']
-
-            if len(top_k_passages_tokens) == number_of_contexts:
-                break
-
-            # if passage is already included (e.g. gt during training)
-            elif (idx, lang) in selected_ids:
-                continue
-            else:
-                if lang in lang_tally:
-                    lang_tally[lang] += 1
-                else:
-                    lang_tally[lang] = 1
-                if lang_tally[lang] > self.context_size:
+        for lang in self.langs:
+            retrieval = sample[lang]['retrieval']
+            # retrieval = sorted(retrieval, key=lambda x: x['score'], reverse=True) # should be sorted
+            for document in retrieval:
+                if len(top_k_titles_raw[lang]) >= self.context_size:
+                    # if there are enough passages continue to next language
+                    break
+                if (document['id'], lang) in selected_ids:
+                    # check if it was not already added
                     continue
-                selected_ids.append((idx, lang))
-                title, passage = self.db_multi.get_doc_text(idx, lang, columns=["title", "passage"])
+                if 'passage' not in document:
+                    # add document if it is missing
+                    title, passage = self.db_multi.get_doc_text(document['id'], lang, columns=["title", "passage"])
+                    document['passage'] = passage
+                    document['title'] = title
+
+                selected_ids.append((document['id'], lang))
+                title = document['title']
+                passage = document['passage']
 
                 # sometimes, there can be duplicate passages inside text (e.g. DPR passages), remove these
-                if title in titles_raw and passage in top_k_passages_raw:
+                if lang == 'en' and \
+                        title in top_k_titles_raw['en'] and \
+                        passage in top_k_passages_raw['en']:
                     continue
 
-                titles.append(self.tokenizer.encode(title, add_special_tokens=False))
-                titles_raw.append(title)
+                top_k_titles_tokens[lang].append(self.tokenizer.encode(title, add_special_tokens=False))
+                top_k_titles_raw[lang].append(title)
 
                 passage = " " + passage
                 tokenized_passage = self.tokenizer.encode(passage, add_special_tokens=False)
-                top_k_passages_tokens.append(tokenized_passage)
-                top_k_passages_raw.append(passage)
+                top_k_passages_tokens[lang].append(tokenized_passage)
+                top_k_passages_raw[lang].append(passage)
 
-        if len(top_k_passages_tokens) != number_of_contexts:
-            logging.info("Not enough selected passages!")
-            logging.info(f"Query: {sample['query']}")
-            logging.info(f"Selected: {selected_ids}")
-            found = [lang for _, lang in selected_ids]
-            for lang in self.langs:
-                if lang not in found:
-                    logging.info(f"Retriever failed for {lang}")
-            return []
-        #assert len(top_k_passages_tokens) == number_of_contexts, \
+        for lang, passages in top_k_passages_raw.items():
+            if len(passages) != self.context_size:
+                logging.info("Not enough selected passages!")
+                logging.info(f"Id: {sample['example_id']}")
+                logging.info(f"Lang: {lang}")
+                logging.info(f"Selected: {selected_ids}")
+                logging.info(f"Expected: {self.context_size}")
+                logging.info(f"Got: {len(passages)}")
+                ipdb.set_trace()
+                return []
+        # assert len(top_k_passages_tokens) == number_of_contexts, \
         #    f"Passages: {len(top_k_passages_tokens)}, Context size: {number_of_contexts} \n{selected_ids}"
 
         examples = []
-        for lang in self.langs:
-            question = sample['queries'][lang]
-            question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
+        answer_langs = random.sample(self.langs, self.examples_per_sample)
+        for answer_lang in answer_langs:
+            question = sample['queries'][answer_lang]['text']
+            if self.multi_lingual_query:
+                # question is in the same language as passage
+                # answer language is indicated by the first question
+                question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
+                input_sequences, document_masks = self.assemble_input_sequences(question=question_tokens,
+                                                                                passages=top_k_passages_tokens[
+                                                                                    answer_lang],
+                                                                                titles=top_k_titles_tokens[answer_lang])
+                titles_tokens = top_k_titles_tokens[answer_lang]
+                text = top_k_titles_raw[answer_lang]
+                for lang in self.langs:
+                    # this was already added
+                    if lang == answer_lang:
+                        continue
 
-            input_sequences, document_masks = self.assemble_input_sequences(question=question_tokens,
-                                                                            passages=top_k_passages_tokens,
-                                                                            titles=titles)
-            answers = sample['answers'][lang][:self.answer_limit]
-            target_sequences = self.assemble_target_sequences(answers=answers, tokenizer=self.tokenizer)
-
-            if not target_sequences:  # in test time
-                example = {
-                    "id"       : sample["example_id"],
-                    "question" : question,
-                    "lang"     : lang,
-                    "answers"  : [],
-                    "sources"  : input_sequences,
-                    "doc_masks": document_masks,
-                    "target"   : [self.tokenizer.pad_token_id],
-                    }
-                if not self.include_doc_masks:
-                    del example["doc_masks"]
-                examples.append(example)
+                    question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
+                    _input_sequences, _document_masks = self.assemble_input_sequences(question=question_tokens,
+                                                                                      passages=top_k_passages_tokens[
+                                                                                          lang],
+                                                                                      titles=top_k_titles_tokens[lang])
+                    titles_tokens += top_k_titles_tokens[lang]
+                    titles_raw += top_k_titles_raw[answer_lang]
+                    input_sequences += _input_sequences
+                    document_masks += _document_masks
             else:
-                for targetSequence in target_sequences:
-                    # useful for debugging
-                    # rev_input = " ".join(tokenizer.convert_ids_to_tokens(inputSequence))
-                    # rev_target = " ".join(tokenizer.convert_ids_to_tokens(targetSequence))
-                    example = {
-                        "id"       : sample["example_id"],
-                        "question" : question,
-                        "lang"     : lang,
-                        "answers"  : sample['answers'][lang],
-                        "sources"  : input_sequences,
-                        "doc_masks": document_masks,
-                        "target"   : [targetSequence],
-                        }
-                    if not self.include_doc_masks:
-                        del example["doc_masks"]
-                    examples.append(example)
+                question_tokens = self.tokenizer.encode(question[answer_lang], add_special_tokens=False)
+                # flatten passages in language order
+                passages_tokens = sum([top_k_passages_tokens[lang] for lang in self.langs], [])
+                titles_tokens = sum([top_k_titles_tokens[lang] for lang in self.langs], [])
+                titles_raw = sum([top_k_titles_raw[lang] for lang in self.langs], [])
+                input_sequences, document_masks = self.assemble_input_sequences(question=question_tokens,
+                                                                                passages=passages_tokens,
+                                                                                titles=titles_tokens)
+            answer_raw = [sample['answers'][answer_lang][0]]
+            target_sequences = self.assemble_target_sequences(answers=answer_raw,
+                                                              tokenizer=self.tokenizer) if self.is_training else [
+                self.tokenizer.pad_token_id]
+            # useful for debugging
+            # rev_input = " ".join(tokenizer.convert_ids_to_tokens(inputSequence))
+            # rev_target = " ".join(tokenizer.convert_ids_to_tokens(targetSequence))
+            example = {
+                "id"       : sample["example_id"],
+                "question" : question,
+                "lang"     : answer_lang,
+                "answers"  : sample['answers'][answer_lang],
+                "sources"  : input_sequences,
+                "doc_masks": document_masks,
+                "target"   : target_sequences,
+                }
+            if not self.include_doc_masks:
+                del example["doc_masks"]
+            examples.append(example)
         return examples
 
 
-def debug():
-    with PassageDB('../../data/wiki/demo.db') as db:
-        from moqa.generative import Trainer
-        tokenizer = Trainer.init_tokenizer('google/mt5-small', 'data/cache/transformers')
-        data = MT5Dataset(datafile='../../data/mkqa/mkqa_dpr_da.jsonl',
-                          tokenizer=tokenizer,
-                          db_multi=db,
-                          is_training=False,
-                          include_golden_passage=False,
-                          langs=['da'],
-                          context_length=3,
-                          use_cache=True,
-                          cache_dir='../../data/cache/generative')
-        data_iter = Iterator(data, shuffle=False, sort=False, batch_size=1, train=False, repeat=False, device='cpu')
-        for i, batch in enumerate(data_iter):
-            print("Batch:", i)
-            print(batch)
-
-
 if __name__ == "__main__":
-    debug()
-    # main()
+    main()

@@ -10,8 +10,8 @@ class PassageDB:
     def __init__(self, db_path: AnyStr):
         if not os.path.isfile(db_path):
             print(os.getcwd())
-            raise RuntimeError(f"Database file {db_path} does not exists!")
-        self.path = db_path
+            raise RuntimeError("Database file {!r} does not exists!".format(db_path))
+        self.__path: str = db_path
         self.connection = sqlite3.connect(db_path, check_same_thread=False)
         self._len = -1
 
@@ -38,6 +38,11 @@ class PassageDB:
         for id, title, passage in iterator:
             yield (id, title, passage)
 
+    @property
+    def path(self):
+        return self.__path
+
+    @path.getter
     def path(self):
         return self.path
 
