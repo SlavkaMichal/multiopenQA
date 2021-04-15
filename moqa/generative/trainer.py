@@ -525,7 +525,7 @@ class Trainer:
                 tokenizer=self.tokenizer,
                 db_multi=self.db,  # database with passages
                 langs=config["languages"],
-                max_context_size=config["context_per_language"],
+                max_context_size=config["max_context_size"],
                 interactive=config["interactive"],
                 multi_lingual_query=config["multi_lingual_query"],  # use multiple languages per question
                 translated_query=config["translated_query"],  # use translated questions
@@ -572,7 +572,7 @@ class Trainer:
                                    tokenizer=self.tokenizer,
                                    db_multi=self.db,  # database with passages
                                    langs=config["languages"],
-                                   max_context_size=config["context_per_language"],
+                                   max_context_size=config["max_context_size"],
                                    interactive=config["interactive"],
                                    multi_lingual_query=config["multi_lingual_query"],
                                    # use multiple languages per question
@@ -598,7 +598,7 @@ class Trainer:
                                  tokenizer=self.tokenizer,
                                  db_multi=self.db,  # database with passages
                                  langs=config["languages"],
-                                 max_context_size=config["context_per_language"],
+                                 max_context_size=config["max_context_size"],
                                  interactive=config["interactive"],
                                  multi_lingual_query=config["multi_lingual_query"],
                                  # use multiple languages per question
@@ -625,7 +625,7 @@ class Trainer:
                                   tokenizer=self.tokenizer,
                                   db_multi=self.db,  # database with passages
                                   langs=config["languages"],
-                                  max_context_size=config["context_per_language"],
+                                  max_context_size=config["max_context_size"],
                                   interactive=config["interactive"],
                                   multi_lingual_query=config["multi_lingual_query"],
                                   # use multiple languages per question
