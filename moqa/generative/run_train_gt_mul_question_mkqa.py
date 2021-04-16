@@ -33,40 +33,41 @@ languages = [
     "ru",  # opus-mt-mul-en rus
     "sv",  # opus-mt-mul-en swe
     "th",  # opus-mt-mul-en tha
-    "tr",  # opus-mt-mul-en tur
+    "tr"  # opus-mt-mul-en tur
     ]
 
+DATA_PATH = '/home/xslavk01/multiopen_QA/multiopenQA/'
 cached_data = {
-    'train': 'data/cache/data/mkqa_dpr_spacy_only.jsonl_mkqa_C1_answers_1_withoutpassages_truncate_whole_input_TRAIN'
-             '.jsonl',
-    'val'  : 'data/cache/data/mkqa_dpr_spacy_only.jsonl_mkqa_C1_answers_1_withoutpassages_truncate_whole_input_VAL'
-             '.jsonl',
-    'test' : 'data/cache/data/mkqa_dpr_spacy_only.jsonl_mkqa_C1_answers_1_withoutpassages_truncate_whole_input_TEST'
-             '.jsonl',
+    'train': DATA_PATH + 'data/cache/data/mkqa_dpr_spacy_only.jsonl_mkqa_C1_answers_1_withoutpassages_truncate_whole_input_TRAIN'
+                         '.jsonl',
+    'val'  : DATA_PATH + 'data/cache/data/mkqa_dpr_spacy_only.jsonl_mkqa_C1_answers_1_withoutpassages_truncate_whole_input_VAL'
+                         '.jsonl',
+    'test' : DATA_PATH + 'data/cache/data/mkqa_dpr_spacy_only.jsonl_mkqa_C1_answers_1_withoutpassages_truncate_whole_input_TEST'
+                         '.jsonl',
     }
 preprocessed_data = {
-    'train': 'data/preprocessed/mkqa_TRAIN_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
-    'val':   'data/preprocessed/mkqa_VAL_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
-    'test':  'data/preprocessed/mkqa_TEST_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
-    #'data/mkqa/mkqa_dpr_spacy_only.jsonl'
+    'train': DATA_PATH + 'data/preprocessed/mkqa_TRAIN_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
+    'val'  : DATA_PATH + 'data/preprocessed/mkqa_VAL_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
+    'test' : DATA_PATH + 'data/preprocessed/mkqa_TEST_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
+    # 'data/mkqa/mkqa_dpr_spacy_only.jsonl'
     }
 
 config = {
-    'interactive'              : True, # confiramtion checkpoints to continue
+    'interactive'              : False,  # confiramtion checkpoints to continue
     'reader_tokenizer_type'    : 'google/mt5-small',
     'reader_transformer_type'  : 'google/mt5-small',
     'reader_max_input_length'  : None,
-    'pretrained_model'         : None, #'data/models/generative_reader_EM0.5339_S3406_Mgoogle_mt5-small_None_pcknot4',
+    'pretrained_model'         : None,  # 'data/models/generative_reader_EM0.5339_S3406_Mgoogle_mt5-small_None_pcknot4',
     'load_optimizer_state_dict': False,
     #    'cache_transformers'      : '../../data/cache/Transformers',
-    'cache_transformers'       : 'data/cache/Transformers',
+    'cache_transformers'       : DATA_PATH + 'data/cache/Transformers',
 
     'fusion_strategy'          : 'allinputs',
     'preprocessing_truncation' : 'truncate_whole_input',
     'fp16'                     : False,
 
-    'save_dir'                 : 'data/models',
-    'results'                  : 'data/results',
+    'save_dir'                 : DATA_PATH + 'data/models',
+    'results'                  : DATA_PATH + 'data/results',
     'log_results'              : True,
     'save_em_threshold'        : 0.1,
     'languages'                : languages,
@@ -82,22 +83,22 @@ config = {
     'preprocess'               : False,
     'test_only'                : False,
     'data_size'                : -1,  # limit number of examples for debugging, if lower than 0 than no limit is applied
-    'multi_lingual_query'      : True, # example has query in multiple languages not only in one
-    'translated_query'         : False, # use machine translated queries
-    'include_golden_passage'   : True, # include golden query if substring matches
-    'only_gt_passages'         : False, # use only passages containing answer string
+    'multi_lingual_query'      : True,  # example has query in multiple languages not only in one
+    'translated_query'         : False,  # use machine translated queries
+    'include_golden_passage'   : True,  # include golden query if substring matches
+    'only_gt_passages'         : False,  # use only passages containing answer string
     'use_dpr_golden'           : True,
-    'examples_per_sample'      : 5, # number of samples created from each sample
+    'examples_per_sample'      : 5,  # number of samples created from each sample
     'max_len'                  : 270,  # max context length
-    'max_context_size'         : 25,  # max number of contexts
+    'max_context_size'         : 35,  # max number of contexts
 
     # 'cache_data'              : '../../data/cache/data',
-    'cache_data'               : 'data/cache/data',
+    'cache_data'               : DATA_PATH + 'data/cache/data',
     'cached_data'              : {},  # override default naming scheme
-    'split_ratio'              : [12, .3, 0.3], # obsolete
+    'split_ratio'              : [12, .3, 0.3],  # obsolete
     'split_random_state'       : 9613,  # make sure splits are the same each time
     # 'database'                : '../../data/wiki/multi_passage.db',
-    'database'                 : 'data/wiki/multi_passage.db',
+    'database'                 : DATA_PATH + 'data/wiki/multi_passage.db',
     'answer_limit'             : 1,  # max number of answers per example
 
     'optimizer'                : 'adam',
@@ -128,7 +129,9 @@ if __name__ == "__main__":
     try:
         r = framework.fit()
     except BaseException as be:
-        ipdb.post_mortem()
+        if config['interactive']:
+            print("here")
+            ipdb.post_mortem()
         logging.error(be)
         logging.error(traceback.format_exc())
         raise be

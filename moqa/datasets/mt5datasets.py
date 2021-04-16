@@ -133,7 +133,7 @@ class MT5Dataset(torchtext.data.Dataset):
                 logging.info(f"Cache file: {preprocessed_f}")
                 if not os.path.exists(preprocessed_f):
                     logging.info(f"{preprocessed_f} not found! Creating new...")
-                    if self.interactive and not confirm("Continue?", default=True):
+                    if self.interactive and not confirm("Start preprocessing data?", default=True):
                         raise KeyboardInterrupt
 
                     s_time = time.time()
@@ -338,7 +338,7 @@ class MT5Dataset(torchtext.data.Dataset):
         return target_sequences
 
     def assemble_input_sequences(self, question: List[int], passages: List[List[int]],
-                                 titles: Optional[List[List[int]]] = None) -> Tuple[List[List[int]], List[List[int]]]:
+                                 titles: List[List[int]]) -> Tuple[List[List[int]], List[List[int]]]:
         inputs = []
         document_masks = []
 
@@ -346,9 +346,6 @@ class MT5Dataset(torchtext.data.Dataset):
             question_special_token = self.tokenizer.convert_tokens_to_ids(self.tokenizer.question_special_token)
             passage_special_token = self.tokenizer.convert_tokens_to_ids(self.tokenizer.passage_special_token)
             title_special_token = self.tokenizer.convert_tokens_to_ids(self.tokenizer.title_special_token)
-            if self.multi_lingual_query:
-                for question, passages_, titles_ in zip(question, passages, titles):
-                    pass
 
             for title, passage in zip(titles, passages):
                 question_and_title = [question_special_token] + question + \
@@ -397,6 +394,7 @@ class MT5Dataset(torchtext.data.Dataset):
 
         """
 
+        global titles_raw
         assert type(self.tokenizer) in [Tokenizer, TokenizerFast], f"Unsupported Tokenizer {type(self.tokenizer)}"
         assert set(sample['answers']) >= set(self.langs), \
             f"Number of languages in sample {len(sample['answers'])} is smaller than languages {len(self.langs)}"
@@ -409,11 +407,22 @@ class MT5Dataset(torchtext.data.Dataset):
         selected_ids = []
         top_k_passages_raw = {}
         top_k_passages_tokens = {}
+        for lang in self.langs:
+            top_k_titles_raw[lang] = []
+            top_k_titles_tokens[lang] = []
+            top_k_passages_raw[lang] = []
+            top_k_passages_tokens[lang] = []
 
         if self.only_gt_passages:
             raise NotImplementedError("Only gt passages are not implemented!")
         if self.translated_query:
             raise NotImplementedError("Using translations is not currently supported!")
+
+        info = {
+            'langs'       : [],
+            'gt_dpr'      : False,
+            'gt_substring': False,
+            }
 
         if self.include_golden_passage:
             gt_lang = None
@@ -427,6 +436,7 @@ class MT5Dataset(torchtext.data.Dataset):
             while gt_index is None and langs_copy:
                 # searching for gt paragraph
                 gt_lang = langs_copy.pop()
+                info['langs'].append(gt_lang)
                 if self.use_dpr_golden and \
                         gt_lang == 'en' and \
                         sample['mkqa'] is not None and \
@@ -436,13 +446,16 @@ class MT5Dataset(torchtext.data.Dataset):
                     gt_title, gt_passage = self.db_multi.get_doc_text(gt_index, gt_lang, columns=["title", "passage"])
                     sample['mkqa']['title'] = gt_title
                     sample['mkqa']['passage'] = gt_passage
+                    info['gt_dpr'] = True
                     continue
 
                 retrieval = sample['queries'][gt_lang]['retrieval']
                 for document in retrieval:
+                    if gt_index is not None:
+                        break
                     if 'passage' not in document:
                         # add document if it is missing
-                        gt_title, gt_passage = self.db_multi.get_doc_text(gt_index, gt_lang,
+                        gt_title, gt_passage = self.db_multi.get_doc_text(document['id'], gt_lang,
                                                                           columns=["title", "passage"])
                         document['passage'] = gt_passage
                         document['title'] = gt_title
@@ -450,6 +463,7 @@ class MT5Dataset(torchtext.data.Dataset):
                     for answer in answers[gt_lang]:
                         if answer in document['passage']:
                             gt_index = document['id']
+                            info['gt_substring'] = True
                             break
             # add gt passage to example
             if gt_index is not None:
@@ -464,7 +478,7 @@ class MT5Dataset(torchtext.data.Dataset):
 
         # take rest of the passages as top-k, if available
         for lang in self.langs:
-            retrieval = sample[lang]['retrieval']
+            retrieval = sample['queries'][lang]['retrieval']
             # retrieval = sorted(retrieval, key=lambda x: x['score'], reverse=True) # should be sorted
             for document in retrieval:
                 if len(top_k_titles_raw[lang]) >= self.context_size:
@@ -505,7 +519,8 @@ class MT5Dataset(torchtext.data.Dataset):
                 logging.info(f"Selected: {selected_ids}")
                 logging.info(f"Expected: {self.context_size}")
                 logging.info(f"Got: {len(passages)}")
-                ipdb.set_trace()
+                if self.interactive:
+                    ipdb.set_trace()
                 return []
         # assert len(top_k_passages_tokens) == number_of_contexts, \
         #    f"Passages: {len(top_k_passages_tokens)}, Context size: {number_of_contexts} \n{selected_ids}"
@@ -513,32 +528,34 @@ class MT5Dataset(torchtext.data.Dataset):
         examples = []
         answer_langs = random.sample(self.langs, self.examples_per_sample)
         for answer_lang in answer_langs:
-            question = sample['queries'][answer_lang]['text']
             if self.multi_lingual_query:
                 # question is in the same language as passage
                 # answer language is indicated by the first question
+                question = sample['queries'][answer_lang]['text']
                 question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
                 input_sequences, document_masks = self.assemble_input_sequences(question=question_tokens,
                                                                                 passages=top_k_passages_tokens[
                                                                                     answer_lang],
                                                                                 titles=top_k_titles_tokens[answer_lang])
+                titles_raw = top_k_titles_raw[answer_lang]
                 titles_tokens = top_k_titles_tokens[answer_lang]
-                text = top_k_titles_raw[answer_lang]
                 for lang in self.langs:
                     # this was already added
                     if lang == answer_lang:
                         continue
 
+                    question = sample['queries'][lang]['text']
                     question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
                     _input_sequences, _document_masks = self.assemble_input_sequences(question=question_tokens,
                                                                                       passages=top_k_passages_tokens[
                                                                                           lang],
                                                                                       titles=top_k_titles_tokens[lang])
+                    titles_raw += top_k_titles_raw[lang]
                     titles_tokens += top_k_titles_tokens[lang]
-                    titles_raw += top_k_titles_raw[answer_lang]
                     input_sequences += _input_sequences
                     document_masks += _document_masks
             else:
+                question = sample['queries'][answer_lang]['text']
                 question_tokens = self.tokenizer.encode(question[answer_lang], add_special_tokens=False)
                 # flatten passages in language order
                 passages_tokens = sum([top_k_passages_tokens[lang] for lang in self.langs], [])
@@ -554,6 +571,7 @@ class MT5Dataset(torchtext.data.Dataset):
             # useful for debugging
             # rev_input = " ".join(tokenizer.convert_ids_to_tokens(inputSequence))
             # rev_target = " ".join(tokenizer.convert_ids_to_tokens(targetSequence))
+            question = sample['queries'][answer_lang]['text']
             example = {
                 "id"       : sample["example_id"],
                 "question" : question,

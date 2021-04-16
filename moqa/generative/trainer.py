@@ -74,7 +74,8 @@ class Trainer:
 
         train, val, test = self.load_data()
         # inspect data
-        ipdb.set_trace()
+        if config['interactive']:
+            ipdb.set_trace()
 
         if config['pretrained_model'] is None:
             logging.info("Loading model")
@@ -154,6 +155,9 @@ class Trainer:
 
             if config['pretrained_model'] is not None and config['load_optimizer_state_dict']:
                 optimizer.load_state_dict(model.optimizer_state_dict)
+                del model.optimizer_state_dict
+            if hasattr(model, 'optimizer_state_dict'):
+                # if optimizer is not being loaded still delete optimizer state dict
                 del model.optimizer_state_dict
 
             # Init scheduler
@@ -533,7 +537,8 @@ class Trainer:
                 use_dpr_golden=config["use_dpr_golden"],
                 # if available use dpr for golden passage if include_golden_passage is true
                 only_gt_passages=config["only_gt_passages"],
-                examples_per_sample=5,  # creates multiple version of a sample but in different languages
+                examples_per_sample=config["examples_per_sample"],
+                # creates multiple version of a sample but in different languages
                 max_len=config["max_len"],
                 data_size=config["data_size"],  # limit number of examples for debugging
                 is_training=True,  # does not tokenize answers
