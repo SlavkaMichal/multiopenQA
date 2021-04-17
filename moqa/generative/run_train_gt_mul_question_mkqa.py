@@ -47,7 +47,7 @@ cached_data = {
     }
 preprocessed_data = {
     'train': DATA_PATH + 'data/preprocessed/mkqa_TRAIN_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
-    'val'  : DATA_PATH + 'data/preprocessed/mkqa_VAL_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
+    'val'  : DATA_PATH + 'data/preprocessed/mkqa_DEV_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
     'test' : DATA_PATH + 'data/preprocessed/mkqa_TEST_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
     # 'data/mkqa/mkqa_dpr_spacy_only.jsonl'
     }
@@ -67,7 +67,7 @@ config = {
     'fp16'                     : False,
 
     'save_dir'                 : DATA_PATH + 'data/models',
-    'results'                  : DATA_PATH + 'data/results',
+    'results'                  : DATA_PATH + 'data/results',  # set to None if results shoul not be saved
     'log_results'              : True,
     'save_em_threshold'        : 0.1,
     'languages'                : languages,
@@ -90,7 +90,7 @@ config = {
     'use_dpr_golden'           : True,
     'examples_per_sample'      : 5,  # number of samples created from each sample
     'max_len'                  : 270,  # max context length
-    'max_context_size'         : 35,  # max number of contexts
+    'max_context_size'         : 25,  # max number of contexts
 
     # 'cache_data'              : '../../data/cache/data',
     'cache_data'               : DATA_PATH + 'data/cache/data',

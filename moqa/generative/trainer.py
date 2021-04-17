@@ -92,7 +92,7 @@ class Trainer:
         if test is not None:
             logging.info(f"Test data examples {len(test)}")
 
-        if not confirm("Do you want to continue?", default=True):
+        if config['interactive'] and not confirm("Do you want to continue?", default=True):
             raise KeyboardInterrupt
 
         if not config["test_only"]:
@@ -284,6 +284,7 @@ class Trainer:
 
         # Calculate total number of updates per epoch
         total = len(data_iter.data()) // data_iter.batch_size + 1
+        logging.info(f"Total number of examples: {total}")
 
         it = tqdm(enumerate(data_iter), total=total - 1)
 
@@ -296,6 +297,7 @@ class Trainer:
             updated = False
             if len(losses_per_update) == 0 and total - i < update_ratio:
                 update_ratio = total - i
+                logging.info(f"Adjusting for last update, ratio: {update_ratio}, i: {i}")
 
             batch.src = batch.src[0]
             batch.src_mask = batch.src_mask[0]
@@ -379,6 +381,8 @@ class Trainer:
                     # Validate after every validate_after_steps steps
                     if get_model(model).training_steps > 1 and \
                             get_model(model).training_steps % self.config["validate_after_steps"] == 0:
+                        logging.info(f"Training loss: {loss_per_update}")
+                        logging.info(f"AVG loss: {sum(total_losses) / len(total_losses)}")
                         self.validate(model, val_iter, optimizer_dict=optimizer.state_dict())
                 else:
                     updated = False
@@ -398,6 +402,7 @@ class Trainer:
                     raise e
         if not updated:
             # Do the last step if needed
+            logging.info(f"Last update {len(losses_per_update), update_ratio}")
             torch.nn.utils.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
                                            self.config["max_grad_norm"])
             optimizer.step()
@@ -421,11 +426,11 @@ class Trainer:
         total = 0
         hits = 0
         loss_list = []
-        if optimizer_dict is None:
+        if optimizer_dict is None and self.config['results'] is not None:
             import csv
             model_type = self.config['reader_transformer_type'].replace("/", "_")
             steps = get_model(model).training_steps
-            outf = open(f"data/results/gen_reader_{model_type}_{steps}.csv", "w", encoding="utf-8")
+            outf = open(f"{self.config['results']}/gen_reader_{model_type}_{steps}.csv", "w", encoding="utf-8")
             csvw = csv.writer(outf, delimiter=',')
             csvw.writerow(["Correct", "Question", "Predicted Answer", "GT Answer", "Input"])
         for i, batch in it:
@@ -470,7 +475,7 @@ class Trainer:
                     metric_fn=exact_match_score, prediction=predicted_answers[i],
                     ground_truths=batch.answers[i])
                 hits += int(hit)
-                if optimizer_dict is None:
+                if optimizer_dict is None and self.config['results'] is not None:
                     csvw.writerow([
                         hit,
                         batch.question[i],
@@ -643,7 +648,7 @@ class Trainer:
                                   # creates multiple version of a sample but in different languages
                                   max_len=config["max_len"],
                                   data_size=config["data_size"],  # limit number of examples for debugging
-                                  is_training=False,  # does not tokenize answers
+                                  is_training=True,  # does not tokenize answers
                                   preprocessing_truncation="truncate_only_passages",  # truncation strategy
                                   include_passage_masks=include_passage_masks,
                                   use_cache=True,  # use cached examples

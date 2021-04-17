@@ -181,7 +181,7 @@ class MT5Dataset(torchtext.data.Dataset):
 
     @staticmethod
     def save(preprocessed_f: string, raw_examples: List[Dict]):
-        with jsonlines.jsonlines.open(preprocessed_f, "w") as wf:
+        with jsonlines.open(preprocessed_f, "w") as wf:
             for e in tqdm.tqdm(raw_examples, desc=f"Saving processed examples"):
                 wf.write(e)
 
@@ -189,7 +189,7 @@ class MT5Dataset(torchtext.data.Dataset):
              preprocessed_f: string,
              fields: Dict[str, torchtext.data.RawField],
              **kwargs) -> List[torchtext.data.Example]:
-        with jsonlines.jsonlines.open(preprocessed_f, "r") as raw_examples:
+        with jsonlines.open(preprocessed_f, "r") as raw_examples:
             return self.load_iterable(fields, raw_examples, **kwargs)
 
     def load_iterable(self, fields, raw_examples, include_passage_masks=False):
@@ -258,7 +258,7 @@ class MT5Dataset(torchtext.data.Dataset):
             with open(self.datafile, encoding="utf-8") as f:
                 num_lines = sum(1 for _ in f)
             logging.info(f"Processing samples from {self.datafile}...")
-            with jsonlines.jsonlines.open(self.datafile) as fp:
+            with jsonlines.open(self.datafile) as fp:
                 for idx, sample in tqdm.tqdm(enumerate(fp), desc="Processing samples",
                                              total=num_lines):  # TODO: parallelize?
                     if self.is_training:
