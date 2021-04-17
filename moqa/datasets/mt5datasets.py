@@ -556,7 +556,7 @@ class MT5Dataset(torchtext.data.Dataset):
                     document_masks += _document_masks
             else:
                 question = sample['queries'][answer_lang]['text']
-                question_tokens = self.tokenizer.encode(question[answer_lang], add_special_tokens=False)
+                question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
                 # flatten passages in language order
                 passages_tokens = sum([top_k_passages_tokens[lang] for lang in self.langs], [])
                 titles_tokens = sum([top_k_titles_tokens[lang] for lang in self.langs], [])

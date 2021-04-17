@@ -83,7 +83,7 @@ config = {
     'preprocess'               : False,
     'test_only'                : False,
     'data_size'                : -1,  # limit number of examples for debugging, if lower than 0 than no limit is applied
-    'multi_lingual_query'      : True,  # example has query in multiple languages not only in one
+    'multi_lingual_query'      : False,  # example has query in multiple languages not only in one
     'translated_query'         : False,  # use machine translated queries
     'include_golden_passage'   : True,  # include golden query if substring matches
     'only_gt_passages'         : False,  # use only passages containing answer string
