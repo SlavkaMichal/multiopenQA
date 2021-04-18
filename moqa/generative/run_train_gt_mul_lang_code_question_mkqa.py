@@ -53,17 +53,18 @@ preprocessed_data = {
     }
 
 config = {
-    'interactive'              : False,  # confiramtion checkpoints to continue
-    'reader_tokenizer_type'    : 'google/mt5-small',
-    'reader_transformer_type'  : 'google/mt5-small',
-    'reader_max_input_length'  : None,
-    'pretrained_model'         : None,  # 'data/models/generative_reader_EM0.5339_S3406_Mgoogle_mt5-small_None_pcknot4',
-    'load_optimizer_state_dict': False,
+    'interactive'                   : False,  # confiramtion checkpoints to continue
+    'reader_tokenizer_type'         : 'google/mt5-small',
+    'reader_transformer_type'       : 'google/mt5-small',
+    'reader_max_input_length'       : None,
+    'pretrained_model'              : None,
+    # 'data/models/generative_reader_EM0.5339_S3406_Mgoogle_mt5-small_None_pcknot4',
+    'load_optimizer_state_dict'     : False,
     #    'cache_transformers'      : '../../data/cache/Transformers',
-    'cache_transformers'       : DATA_PATH + 'data/cache/Transformers',
+    'cache_transformers'            : DATA_PATH + 'data/cache/Transformers',
 
-    'fusion_strategy'          : 'allinputs',
-    'preprocessing_truncation' : 'truncate_whole_input',
+    'fusion_strategy'               : 'allinputs',
+    'preprocessing_truncation'      : 'truncate_whole_input',
     'fp16'                          : False,
 
     'save_dir'                      : DATA_PATH + 'data/models',
@@ -84,8 +85,8 @@ config = {
     'test_only'                     : False,
     'data_size'                     : -1,
     # limit number of examples for debugging, if lower than 0 than no limit is applied
-    'multi_lingual_query'           : False,  # example has query in multiple languages not only in one
-    'multi_lingual_answer_lang_code': False,
+    'multi_lingual_query'           : True,  # example has query in multiple languages not only in one
+    'multi_lingual_answer_lang_code': True,
     'translated_query'              : False,  # use machine translated queries
     'include_golden_passage'        : True,  # include golden query if substring matches
     'only_gt_passages'              : False,  # use only passages containing answer string
@@ -106,13 +107,13 @@ config = {
     'optimizer'                     : 'adam',
     # Parameters used in efficientQA
     "learning_rate"                 : 1e-4,
-    "adam_eps"                 : 1e-06,
-    "max_grad_norm"            : 1.,
-    "weight_decay"             : 1e-5,
-    "hidden_dropout"           : 0.1,
-    "attention_dropout"        : 0.1,
-    'scheduler'                : 'linear',
-    'scheduler_warmup_steps'   : -1
+    "adam_eps"                      : 1e-06,
+    "max_grad_norm"                 : 1.,
+    "weight_decay"                  : 1e-5,
+    "hidden_dropout"                : 0.1,
+    "attention_dropout"             : 0.1,
+    'scheduler'                     : 'linear',
+    'scheduler_warmup_steps'        : -1
     }
 
 if __name__ == "__main__":

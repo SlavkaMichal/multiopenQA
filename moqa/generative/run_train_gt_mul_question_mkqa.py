@@ -64,46 +64,48 @@ config = {
 
     'fusion_strategy'          : 'allinputs',
     'preprocessing_truncation' : 'truncate_whole_input',
-    'fp16'                     : False,
+    'fp16'                          : False,
 
-    'save_dir'                 : DATA_PATH + 'data/models',
-    'results'                  : DATA_PATH + 'data/results',  # set to None if results shoul not be saved
-    'log_results'              : True,
-    'save_em_threshold'        : 0.1,
-    'languages'                : languages,
+    'save_dir'                      : DATA_PATH + 'data/models',
+    'results'                       : DATA_PATH + 'data/results',  # set to None if results shoul not be saved
+    'log_results'                   : True,
+    'save_em_threshold'             : 0.1,
+    'languages'                     : languages,
 
-    'validation_batch_size'    : 1,
-    'validate_after_steps'     : 500,
-    'max_steps'                : 10_000,
-    'batch_size'               : 1,
-    'true_batch_size'          : 64,
+    'validation_batch_size'         : 1,
+    'validate_after_steps'          : 500,
+    'max_steps'                     : 10_000,
+    'batch_size'                    : 1,
+    'true_batch_size'               : 64,
 
     # 'data'                    : '../../data/mkqa/mkqa_dpr_spacy_only.jsonl',
-    'data'                     : preprocessed_data,
-    'preprocess'               : False,
-    'test_only'                : False,
-    'data_size'                : -1,  # limit number of examples for debugging, if lower than 0 than no limit is applied
-    'multi_lingual_query'      : True,  # example has query in multiple languages not only in one
-    'translated_query'         : False,  # use machine translated queries
-    'include_golden_passage'   : True,  # include golden query if substring matches
-    'only_gt_passages'         : False,  # use only passages containing answer string
-    'use_dpr_golden'           : True,
-    'examples_per_sample'      : 5,  # number of samples created from each sample
-    'max_len'                  : 270,  # max context length
-    'max_context_size'         : 25,  # max number of contexts
+    'data'                          : preprocessed_data,
+    'preprocess'                    : False,
+    'test_only'                     : False,
+    'data_size'                     : -1,
+    # limit number of examples for debugging, if lower than 0 than no limit is applied
+    'multi_lingual_query'           : True,  # example has query in multiple languages not only in one
+    'multi_lingual_answer_lang_code': False,
+    'translated_query'              : False,  # use machine translated queries
+    'include_golden_passage'        : True,  # include golden query if substring matches
+    'only_gt_passages'              : False,  # use only passages containing answer string
+    'use_dpr_golden'                : True,
+    'examples_per_sample'           : 5,  # number of samples created from each sample
+    'max_len'                       : 270,  # max context length
+    'max_context_size'              : 25,  # max number of contexts
 
     # 'cache_data'              : '../../data/cache/data',
-    'cache_data'               : DATA_PATH + 'data/cache/data',
-    'cached_data'              : {},  # override default naming scheme
-    'split_ratio'              : [12, .3, 0.3],  # obsolete
-    'split_random_state'       : 9613,  # make sure splits are the same each time
+    'cache_data'                    : DATA_PATH + 'data/cache/data',
+    'cached_data'                   : {},  # override default naming scheme
+    'split_ratio'                   : [12, .3, 0.3],  # obsolete
+    'split_random_state'            : 9613,  # make sure splits are the same each time
     # 'database'                : '../../data/wiki/multi_passage.db',
-    'database'                 : DATA_PATH + 'data/wiki/multi_passage.db',
-    'answer_limit'             : 1,  # max number of answers per example
+    'database'                      : DATA_PATH + 'data/wiki/multi_passage.db',
+    'answer_limit'                  : 1,  # max number of answers per example
 
-    'optimizer'                : 'adam',
+    'optimizer'                     : 'adam',
     # Parameters used in efficientQA
-    "learning_rate"            : 1e-4,
+    "learning_rate"                 : 1e-4,
     "adam_eps"                 : 1e-06,
     "max_grad_norm"            : 1.,
     "weight_decay"             : 1e-5,

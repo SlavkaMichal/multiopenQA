@@ -79,6 +79,8 @@ class MT5Dataset(torchtext.data.Dataset):
                  interactive: bool,
                  # if true, program will stop execution on multiple places and confirmation will be required to continue
                  multi_lingual_query: bool,  # use multiple languages per question
+                 multi_lingual_answer_lang_code: bool,
+                 # for multilingual query adds answer language code before question
                  translated_query: bool,  # use translated questions
                  include_golden_passage: bool,  # if true one passage containing answer string will be added if found
                  use_dpr_golden: bool,  # if available use dpr for golden passage if include_golden_passage is true
@@ -107,6 +109,7 @@ class MT5Dataset(torchtext.data.Dataset):
         self.use_cache = use_cache
         self.cached_data_path = cached_data_path
         self.multi_lingual_query = multi_lingual_query
+        self.multi_lingual_answer_lang_code = multi_lingual_answer_lang_code
         self.translated_query = translated_query
         self.include_golden_passage = include_golden_passage
         self.use_dpr_golden = use_dpr_golden
@@ -126,6 +129,26 @@ class MT5Dataset(torchtext.data.Dataset):
         if not include_passage_masks and 'doc_mask' in fields:
             del fields['doc_mask']
         self.fields = fields
+
+        self.lang_code = {
+            "ar": ">>ar<<",
+            "da": ">>da<<",
+            "de": ">>de<<",
+            "es": ">>es<<",
+            "en": ">>en<<",
+            "fi": ">>fi<<",
+            "fr": ">>fr<<",
+            "hu": ">>hu<<",
+            "it": ">>it<<",
+            "ja": ">>ja<<",
+            "nl": ">>du<<",  # changed language code because nl is not one token
+            "pl": ">>pl<<",
+            "pt": ">>pt<<",
+            "ru": ">>ru<<",
+            "sv": ">>se<<",  # changed language code because sv is not one token
+            "th": ">>th<<",
+            "tr": ">>tr<<"
+            }
 
         if init_examples:
             if use_cache:
@@ -162,6 +185,7 @@ class MT5Dataset(torchtext.data.Dataset):
             return self.cached_data_path
         without_psg_suffix = f"_withoutpassages" if not self.include_golden_passage else ""
         multi_lingual = f"_multilingual" if self.multi_lingual_query else "_monolingual"
+        lang_code = f"_with-lang-code" if self.multi_lingual_answer_lang_code else ""
         translated = f"_translated" if self.translated_query else "_mkqa_translations"
         with_psg_masks = "_with_passage_masks" if self.include_passage_masks else ""
         model_name = f"_{self.model_name}" if self.model_name else ""
@@ -172,6 +196,7 @@ class MT5Dataset(torchtext.data.Dataset):
                               f"{with_psg_masks}" \
                               f"{gt_only}" \
                               f"{multi_lingual}" \
+                              f"{lang_code}" \
                               f"{translated}" \
                               f"{without_psg_suffix}" \
                               f"_{self.preprocessing_truncation}" \
@@ -529,9 +554,12 @@ class MT5Dataset(torchtext.data.Dataset):
         answer_langs = random.sample(self.langs, self.examples_per_sample)
         for answer_lang in answer_langs:
             if self.multi_lingual_query:
+                answer_lang_code = self.lang_code[answer_lang]
                 # question is in the same language as passage
                 # answer language is indicated by the first question
                 question = sample['queries'][answer_lang]['text']
+                if self.multi_lingual_answer_lang_code:
+                    question = answer_lang_code + question
                 question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
                 input_sequences, document_masks = self.assemble_input_sequences(question=question_tokens,
                                                                                 passages=top_k_passages_tokens[
@@ -545,6 +573,8 @@ class MT5Dataset(torchtext.data.Dataset):
                         continue
 
                     question = sample['queries'][lang]['text']
+                    if self.multi_lingual_answer_lang_code:
+                        question = answer_lang_code + question
                     question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
                     _input_sequences, _document_masks = self.assemble_input_sequences(question=question_tokens,
                                                                                       passages=top_k_passages_tokens[

@@ -25,6 +25,7 @@ from moqa.generative.model import MT5QA
 from moqa.db import PassageDB
 from moqa.common import config as logging_cfg
 import ipdb
+import subprocess
 import logging
 
 # from .config_types import TrainConfig
@@ -51,6 +52,12 @@ class Trainer:
         self.tokenizer = self.init_tokenizer(config['reader_tokenizer_type'], config['cache_transformers'])
 
         self.db = PassageDB(db_path=self.config['database'])
+
+        # log git commit
+        out = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True)
+        commit = out.stdout.decode('utf-8')[:-1]
+        if out.returncode == 0:
+            logging.info(f"Commit hash: {commit}")
 
     @staticmethod
     def init_tokenizer(tokenizer_type, cache_dir) -> PreTrainedTokenizer:
@@ -537,6 +544,7 @@ class Trainer:
                 max_context_size=config["max_context_size"],
                 interactive=config["interactive"],
                 multi_lingual_query=config["multi_lingual_query"],  # use multiple languages per question
+                multi_lingual_answer_lang_code=config["multi_lingual_answer_lang_code"],
                 translated_query=config["translated_query"],  # use translated questions
                 include_golden_passage=config["include_golden_passage"],
                 use_dpr_golden=config["use_dpr_golden"],
@@ -585,6 +593,7 @@ class Trainer:
                                    max_context_size=config["max_context_size"],
                                    interactive=config["interactive"],
                                    multi_lingual_query=config["multi_lingual_query"],
+                                   multi_lingual_answer_lang_code=config["multi_lingual_answer_lang_code"],
                                    # use multiple languages per question
                                    translated_query=config["translated_query"],  # use translated questions
                                    include_golden_passage=config["include_golden_passage"],
@@ -611,6 +620,7 @@ class Trainer:
                                  max_context_size=config["max_context_size"],
                                  interactive=config["interactive"],
                                  multi_lingual_query=config["multi_lingual_query"],
+                                 multi_lingual_answer_lang_code=config["multi_lingual_answer_lang_code"],
                                  # use multiple languages per question
                                  translated_query=config["translated_query"],  # use translated questions
                                  include_golden_passage=config["include_golden_passage"],
@@ -638,6 +648,7 @@ class Trainer:
                                   max_context_size=config["max_context_size"],
                                   interactive=config["interactive"],
                                   multi_lingual_query=config["multi_lingual_query"],
+                                  multi_lingual_answer_lang_code=config["multi_lingual_answer_lang_code"],
                                   # use multiple languages per question
                                   translated_query=config["translated_query"],  # use translated questions
                                   include_golden_passage=config["include_golden_passage"],
