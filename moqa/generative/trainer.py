@@ -23,6 +23,7 @@ from moqa.common.utils import timestamp
 from moqa.common.eval_utils import metric_max_over_ground_truths, exact_match_score
 from moqa.generative.model import MT5QA
 from moqa.db import PassageDB
+from moqa.translate import Translator
 from moqa.common import config as logging_cfg
 import ipdb
 import subprocess
@@ -52,6 +53,8 @@ class Trainer:
         self.tokenizer = self.init_tokenizer(config['reader_tokenizer_type'], config['cache_transformers'])
 
         self.db = PassageDB(db_path=self.config['database'])
+
+        self.translator = Translator(device='cpu')  # I don't thing that this will fit in GPU memory
 
         # log git commit
         out = subprocess.run(['git', 'rev-parse', 'HEAD'], capture_output=True)
@@ -99,7 +102,7 @@ class Trainer:
         if test is not None:
             logging.info(f"Test data examples {len(test)}")
 
-        if config['interactive'] and not confirm("Do you want to continue?", default=True):
+        if config['interactive'] and not confirm("Data are prepared. Do you wish to start training?", default=True):
             raise KeyboardInterrupt
 
         if not config["test_only"]:
@@ -432,6 +435,14 @@ class Trainer:
 
         total = 0
         hits = 0
+
+        translated_hits = {}
+        translated_total = {}
+        if 'mt5' not in self.config['reader_transformer_type']:
+            for lang in self.config['languages']:
+                translated_hits[lang] = 0
+                translated_total[lang] = 0
+
         loss_list = []
         if optimizer_dict is None and self.config['results'] is not None:
             import csv
@@ -440,7 +451,7 @@ class Trainer:
             outf = open(f"{self.config['results']}/gen_reader_{model_type}_{steps}.csv", "w", encoding="utf-8")
             csvw = csv.writer(outf, delimiter=',')
             csvw.writerow(["Correct", "Question", "Predicted Answer", "GT Answer", "Input"])
-        for i, batch in it:
+        for j, batch in it:
             batch.src = batch.src[0]
             batch.src_mask = batch.src_mask[0]
             batch.doc_mask = batch.doc_mask[0] if hasattr(batch, "doc_mask") else None
@@ -477,16 +488,29 @@ class Trainer:
 
             predicted_answers = [self.tokenizer.decode(ans, skip_special_tokens=True) for ans in
                                  tokenized_answers]
+
+            if 'mt5' not in self.config['reader_transformer_type']:
+                langs = [b.lang for b in batch]
+                predicted_answers_mul = [self.translator.from_en(answer, lang) for lang, answer in
+                                         zip(langs, predicted_answers)]
+
             for i in range(len(batch)):
                 hit = metric_max_over_ground_truths(
                     metric_fn=exact_match_score, prediction=predicted_answers[i],
                     ground_truths=batch.answers[i])
                 hits += int(hit)
+                if 'mt5' not in self.config['reader_transformer_type']:
+                    translated_hit = metric_max_over_ground_truths(
+                        metric_fn=exact_match_score, prediction=predicted_answers_mul[i],
+                        ground_truths=batch.answers[i])
+                    translated_hits[batch.lang[i]] += int(translated_hit)
+                    translated_total[batch.lang[i]] += 1
+
                 if optimizer_dict is None and self.config['results'] is not None:
                     csvw.writerow([
                         hit,
                         batch.question[i],
-                        predicted_answers[i],
+                        predicted_answers[i] + predicted_answers_mul[i],
                         batch.answers[i],
                         self.tokenizer.decode(batch.src[i])
                         ])
@@ -496,6 +520,11 @@ class Trainer:
         EM = hits / total
         logging.info(f"S: {get_model(model).training_steps} Validation Loss: {sum(loss_list) / len(loss_list)}")
         logging.info(f"Validation EM: {EM}")
+        for lang, lang_hits in translated_hits.items():
+            lang_total = translated_total[lang]
+            EM = lang_hits / lang_total
+            logging.info(f"Validation EM {lang}: {EM} ({lang_total}/{lang_hits})")
+
         if optimizer_dict is None:
             outf.close()
         if EM > self.best_em and not self.config['test_only']:
@@ -534,6 +563,8 @@ class Trainer:
                 # if test only and limit for data size was not set reduce the amount of data
                 config["data_size"] = 10_000
 
+            if not confirm("WARNING: Not sure if this work, you probably should look at it.", default=False):
+                raise KeyboardInterrupt
             data = MT5Dataset(
                 datafile=config["data"],
                 preprocess=config["preprocess"],
@@ -546,6 +577,8 @@ class Trainer:
                 multi_lingual_query=config["multi_lingual_query"],  # use multiple languages per question
                 multi_lingual_answer_lang_code=config["multi_lingual_answer_lang_code"],
                 translated_query=config["translated_query"],  # use translated questions
+                translated_retrieval_search=config['translated_retrieval_search'],
+                english_ctxs_only=config["english_ctxs_only"],
                 include_golden_passage=config["include_golden_passage"],
                 use_dpr_golden=config["use_dpr_golden"],
                 # if available use dpr for golden passage if include_golden_passage is true
@@ -560,6 +593,7 @@ class Trainer:
                 use_cache=True,  # use cached examples
                 cached_data_path=None,  #
                 cache_dir=config["cache_data"],
+                device=self.device
                 )
 
             logging.info(f"Total data examples:{len(data)}")
@@ -596,6 +630,8 @@ class Trainer:
                                    multi_lingual_answer_lang_code=config["multi_lingual_answer_lang_code"],
                                    # use multiple languages per question
                                    translated_query=config["translated_query"],  # use translated questions
+                                   translated_retrieval_search=config['translated_retrieval_search'],
+                                   english_ctxs_only=config["english_ctxs_only"],
                                    include_golden_passage=config["include_golden_passage"],
                                    use_dpr_golden=config["use_dpr_golden"],
                                    # if available use dpr for golden passage if include_golden_passage is true
@@ -610,7 +646,9 @@ class Trainer:
                                    use_cache=True,  # use cached examples
                                    cached_data_path=None if 'train' not in config['cached_data'] else
                                    config['cached_data']['train'],  #
-                                   cache_dir=config["cache_data"])
+                                   cache_dir=config["cache_data"],
+                                   device=self.device
+                                   )
                 val = MT5Dataset(config["data"]['val'],
                                  preprocess=config["preprocess"],
                                  model_name=model_name,
@@ -623,6 +661,8 @@ class Trainer:
                                  multi_lingual_answer_lang_code=config["multi_lingual_answer_lang_code"],
                                  # use multiple languages per question
                                  translated_query=config["translated_query"],  # use translated questions
+                                 translated_retrieval_search=config['translated_retrieval_search'],
+                                 english_ctxs_only=config["english_ctxs_only"],
                                  include_golden_passage=config["include_golden_passage"],
                                  use_dpr_golden=config["use_dpr_golden"],
                                  # if available use dpr for golden passage if include_golden_passage is true
@@ -637,7 +677,9 @@ class Trainer:
                                  use_cache=True,  # use cached examples
                                  cached_data_path=None if 'val' not in config['cached_data'] else
                                  config['cached_data']['val'],  #
-                                 cache_dir=config["cache_data"])
+                                 cache_dir=config["cache_data"],
+                                 device=self.device
+                                 )
             if 'test' in config['data']:
                 test = MT5Dataset(config["data"]['test'],
                                   preprocess=config["preprocess"],
@@ -651,6 +693,8 @@ class Trainer:
                                   multi_lingual_answer_lang_code=config["multi_lingual_answer_lang_code"],
                                   # use multiple languages per question
                                   translated_query=config["translated_query"],  # use translated questions
+                                  translated_retrieval_search=config['translated_retrieval_search'],
+                                  english_ctxs_only=config["english_ctxs_only"],
                                   include_golden_passage=config["include_golden_passage"],
                                   use_dpr_golden=config["use_dpr_golden"],
                                   # if available use dpr for golden passage if include_golden_passage is true
@@ -665,6 +709,7 @@ class Trainer:
                                   use_cache=True,  # use cached examples
                                   cached_data_path=None if 'test' not in config['cached_data'] else
                                   config['cached_data']['test'],  #
-                                  cache_dir=config["cache_data"])
+                                  cache_dir=config["cache_data"],
+                                  device=self.device)
 
-            return train, val, test
+        return train, val, test

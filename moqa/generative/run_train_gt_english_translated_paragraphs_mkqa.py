@@ -21,15 +21,16 @@ preprocessed_data = {
     'val'  : Config.DATA_PATH + 'data/preprocessed/mkqa_DEV_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
     'test' : Config.DATA_PATH + 'data/preprocessed/mkqa_TEST_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
     }
+
 config = Config.config
-config['translated_query'] = False
-config['multi_lingual_query'] = False  # example has query in multiple languages not only in one
-config['reader_tokenizer_type'] = 'google/mt5-small'
-config['reader_transformer_type'] = 'google/mt5-small'
 config['log_results'] = True
+config['include_golden_passage'] = True
 config['save_em_threshold'] = 0.15
+config['reader_tokenizer_type'] = 't5-small'
+config['reader_transformer_type'] = 't5-small'
 config['data'] = preprocessed_data
-config['include_golden_passage'] = True  # include golden query if substring matches
+config['multi_lingual_query'] = False  # example has query in multiple languages not only in one
+config['translated_query'] = False
 config['use_dpr_golden'] = True
 
 if __name__ == "__main__":

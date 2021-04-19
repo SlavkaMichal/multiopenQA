@@ -13,6 +13,7 @@ from transformers import MT5TokenizerFast as TokenizerFast
 from typing import List, Tuple, Dict, AnyStr, Optional
 from moqa.db import PassageDB
 from moqa.common import config
+from moqa.translate import Translator
 import ipdb
 import logging
 
@@ -24,47 +25,6 @@ logging.basicConfig(
 MKQA = "data/mkqa/mkqa.json"  #
 DB_PATH = "data/wiki/all_passage.db"  # (lang_id, title, passage)
 
-
-def main():
-    # this is for testing
-    from moqa.generative.trainer import Trainer
-    with PassageDB('data/wiki/demo.db') as db:
-        tokenizer = Trainer.init_tokenizer('google/mt5-small', 'data/cache/transformers')
-        data = MT5Dataset(
-            datafile='data/preprocessed/TODO.jsonl',
-            preprocess=False,  # preprocess original dataset
-            model_name='google/mt5-small',
-            tokenizer=tokenizer,
-            db_multi=db,  # database with passages
-            langs=['en', 'it', 'de'],  # languages in an example
-            max_context_size=25,  # maximal amount of contexts per sample
-            interactive=True,
-            multi_lingual_query=True,  # use multiple languages per question
-            translated_query=False,  # use translated questions
-            include_golden_passage=True,  # if true one passage containing answer string will be added if found
-            use_dpr_golden=True,  # if available use dpr for golden passage if include_golden_passage is true
-            only_gt_passages=False,  # make sure that all passages contain answer
-            examples_per_sample=5,  # creates multiple version of a sample but in different languages
-            max_len=270,  # tokenized input truncation
-            data_size=10,  # if lower than zero than does nothing
-            is_training=True,  # does not tokenize answers
-            preprocessing_truncation="truncate_only_passages",  # truncation strategy
-            include_passage_masks=False,  # unnecessary
-            use_cache=True,  # use cached examples
-            cached_data_path=None,  #
-            init_examples=True,  # if false only class will be created and data won't be loaded
-            cache_dir='data/cache/generative'
-            )
-        data_iter = torchtext.data.Iterator(data,
-                                            shuffle=True,
-                                            sort=False,
-                                            batch_size=1,
-                                            train=False,
-                                            repeat=False,
-                                            device='cpu')
-        for batch in data_iter:
-            print("Batch:")
-            print(batch)
 
 
 class MT5Dataset(torchtext.data.Dataset):
@@ -82,10 +42,13 @@ class MT5Dataset(torchtext.data.Dataset):
                  multi_lingual_answer_lang_code: bool,
                  # for multilingual query adds answer language code before question
                  translated_query: bool,  # use translated questions
+                 translated_retrieval_search: bool,
+                 english_ctxs_only: bool,
                  include_golden_passage: bool,  # if true one passage containing answer string will be added if found
                  use_dpr_golden: bool,  # if available use dpr for golden passage if include_golden_passage is true
                  only_gt_passages: bool,  # make sure that all passages contain answer
                  examples_per_sample: int,  # creates multiple version of a sample but in different languages
+                 device: str,
                  max_len: Optional[int] = None,  # tokenized input truncation
                  data_size: int = -1,
                  # if lower than zero than does nothing otherwise limits number of processed samples for testing
@@ -111,6 +74,8 @@ class MT5Dataset(torchtext.data.Dataset):
         self.multi_lingual_query = multi_lingual_query
         self.multi_lingual_answer_lang_code = multi_lingual_answer_lang_code
         self.translated_query = translated_query
+        self.translated_retrieval_search = translated_retrieval_search
+        self.english_ctxs_only = english_ctxs_only
         self.include_golden_passage = include_golden_passage
         self.use_dpr_golden = use_dpr_golden
         self.only_gt_passages = only_gt_passages
@@ -124,6 +89,9 @@ class MT5Dataset(torchtext.data.Dataset):
         self.context_size = max_context_size // len(self.langs)
         logging.info(f"Number of contexts per language: {self.context_size}")
         logging.info(f"Languages: {self.langs}")
+
+        if 'mt5' not in self.model_name:
+            self.translator = Translator(device=device)
 
         fields: Dict[str, torchtext.data.Field] = self.prepare_fields(tokenizer.pad_token_id)
         if not include_passage_masks and 'doc_mask' in fields:
@@ -180,13 +148,17 @@ class MT5Dataset(torchtext.data.Dataset):
 
             super().__init__(examples, fields, **kwargs)
 
+        # remove translators from GPU
+        if 'mt5' not in self.model_name:
+            self.translator.del_translators()
+
     def create_preprocessed_name(self):
         if self.cached_data_path is not None:
             return self.cached_data_path
         without_psg_suffix = f"_withoutpassages" if not self.include_golden_passage else ""
         multi_lingual = f"_multilingual" if self.multi_lingual_query else "_monolingual"
         lang_code = f"_with-lang-code" if self.multi_lingual_answer_lang_code else ""
-        translated = f"_translated" if self.translated_query else "_mkqa_translations"
+        translated = f"_mt-translated" if self.translated_query else "_mkqa_translations"
         with_psg_masks = "_with_passage_masks" if self.include_passage_masks else ""
         model_name = f"_{self.model_name}" if self.model_name else ""
         gt_only = "_gt_only" if self.only_gt_passages else ""
@@ -424,6 +396,12 @@ class MT5Dataset(torchtext.data.Dataset):
         assert set(sample['answers']) >= set(self.langs), \
             f"Number of languages in sample {len(sample['answers'])} is smaller than languages {len(self.langs)}"
 
+        if self.translated_retrieval_search:
+            raise NotImplementedError("Use machine translated queries for retrieval.")
+        if self.english_ctxs_only:
+            raise NotImplementedError("Use only native english contexts.")
+            # return self.process_sample_english_only(sample)
+
         answers = sample['answers']
 
         # if golden passage is not available, start with empty set of passages
@@ -440,8 +418,6 @@ class MT5Dataset(torchtext.data.Dataset):
 
         if self.only_gt_passages:
             raise NotImplementedError("Only gt passages are not implemented!")
-        if self.translated_query:
-            raise NotImplementedError("Using translations is not currently supported!")
 
         info = {
             'langs'       : [],
@@ -492,13 +468,17 @@ class MT5Dataset(torchtext.data.Dataset):
                             break
             # add gt passage to example
             if gt_index is not None:
-                # if there is a gt passage add it
+                gt_passage = " " + gt_passage
+                # if model is not multilingual translate passage
+                if 'mt5' not in self.model_name and lang != 'en':
+                    gt_passage = self.translator.translate('mul-en', [gt_passage])[0]
+                    gt_title = self.translator.translate('mul-en', [gt_title])[0]
+
+                top_k_passages_tokens[gt_lang] = [self.tokenizer.encode(gt_passage, add_special_tokens=False)]
+                top_k_passages_raw[gt_lang] = [gt_passage]
                 top_k_titles_tokens[gt_lang] = [self.tokenizer.encode(gt_title, add_special_tokens=False)]
                 top_k_titles_raw[gt_lang] = [gt_title]
 
-                golden_passage = " " + gt_passage
-                top_k_passages_tokens[gt_lang] = [self.tokenizer.encode(golden_passage, add_special_tokens=False)]
-                top_k_passages_raw[gt_lang] = [golden_passage]
                 selected_ids.append((gt_index, gt_lang))
 
         # take rest of the passages as top-k, if available
@@ -518,7 +498,6 @@ class MT5Dataset(torchtext.data.Dataset):
                     document['passage'] = passage
                     document['title'] = title
 
-                selected_ids.append((document['id'], lang))
                 title = document['title']
                 passage = document['passage']
 
@@ -528,14 +507,20 @@ class MT5Dataset(torchtext.data.Dataset):
                         passage in top_k_passages_raw['en']:
                     continue
 
-                top_k_titles_tokens[lang].append(self.tokenizer.encode(title, add_special_tokens=False))
-                top_k_titles_raw[lang].append(title)
+                selected_ids.append((document['id'], lang))
 
                 passage = " " + passage
+                # if model is not multilingual translate passage
+                if 'mt5' not in self.model_name and lang != 'en':
+                    passage = self.translator.translate('mul-en', [passage])[0]
+                    title = self.translator.translate('mul-en', [title])[0]
                 tokenized_passage = self.tokenizer.encode(passage, add_special_tokens=False)
                 top_k_passages_tokens[lang].append(tokenized_passage)
                 top_k_passages_raw[lang].append(passage)
+                top_k_titles_tokens[lang].append(self.tokenizer.encode(title, add_special_tokens=False))
+                top_k_titles_raw[lang].append(title)
 
+        # check if there is enough retrieval info
         for lang, passages in top_k_passages_raw.items():
             if len(passages) != self.context_size:
                 logging.info("Not enough selected passages!")
@@ -560,6 +545,7 @@ class MT5Dataset(torchtext.data.Dataset):
                 question = sample['queries'][answer_lang]['text']
                 if self.multi_lingual_answer_lang_code:
                     question = answer_lang_code + question
+
                 question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
                 input_sequences, document_masks = self.assemble_input_sequences(question=question_tokens,
                                                                                 passages=top_k_passages_tokens[
@@ -586,6 +572,12 @@ class MT5Dataset(torchtext.data.Dataset):
                     document_masks += _document_masks
             else:
                 question = sample['queries'][answer_lang]['text']
+                # translate question to English if model is not multilingual
+                if 'mt5' not in self.model_name and answer_lang != 'en':
+                    if self.translated_query:
+                        question = self.translator.translate('mul-en', [question])[0]
+                    else:
+                        question = sample['queries']['en']['text']
                 question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
                 # flatten passages in language order
                 passages_tokens = sum([top_k_passages_tokens[lang] for lang in self.langs], [])
@@ -595,9 +587,14 @@ class MT5Dataset(torchtext.data.Dataset):
                                                                                 passages=passages_tokens,
                                                                                 titles=titles_tokens)
             answer_raw = [sample['answers'][answer_lang][0]]
+            if 'mt5' not in self.model_name and answer_lang != 'en':
+                answer_raw = [sample['answers']['en'][0]]
             target_sequences = self.assemble_target_sequences(answers=answer_raw,
                                                               tokenizer=self.tokenizer) if self.is_training else [
                 self.tokenizer.pad_token_id]
+            answers_raw = sample['answers'][answer_lang]
+            if 'mt5' not in self.model_name and answer_lang != 'en':
+                answers_raw += sample['answers']['en']
             # useful for debugging
             # rev_input = " ".join(tokenizer.convert_ids_to_tokens(inputSequence))
             # rev_target = " ".join(tokenizer.convert_ids_to_tokens(targetSequence))
@@ -606,7 +603,7 @@ class MT5Dataset(torchtext.data.Dataset):
                 "id"       : sample["example_id"],
                 "question" : question,
                 "lang"     : answer_lang,
-                "answers"  : sample['answers'][answer_lang],
+                "answers"  : answers_raw,
                 "sources"  : input_sequences,
                 "doc_masks": document_masks,
                 "target"   : target_sequences,
@@ -615,6 +612,53 @@ class MT5Dataset(torchtext.data.Dataset):
                 del example["doc_masks"]
             examples.append(example)
         return examples
+
+    def process_sample_english_only(self, sample: dict):
+        answers = sample['answers']
+        pass
+
+
+def main():
+    # this is for testing
+    from moqa.generative.trainer import Trainer
+    with PassageDB('data/wiki/demo.db') as db:
+        tokenizer = Trainer.init_tokenizer('google/mt5-small', 'data/cache/transformers')
+        data = MT5Dataset(
+            datafile='data/preprocessed/TODO.jsonl',
+            preprocess=False,  # preprocess original dataset
+            model_name='google/mt5-small',
+            tokenizer=tokenizer,
+            db_multi=db,  # database with passages
+            langs=['en', 'it', 'de'],  # languages in an example
+            max_context_size=25,  # maximal amount of contexts per sample
+            interactive=True,
+            multi_lingual_query=True,  # use multiple languages per question
+            translated_query=False,  # use translated questions
+            translated_retrieval_search=False,
+            include_golden_passage=True,  # if true one passage containing answer string will be added if found
+            use_dpr_golden=True,  # if available use dpr for golden passage if include_golden_passage is true
+            only_gt_passages=False,  # make sure that all passages contain answer
+            examples_per_sample=5,  # creates multiple version of a sample but in different languages
+            max_len=270,  # tokenized input truncation
+            data_size=10,  # if lower than zero than does nothing
+            is_training=True,  # does not tokenize answers
+            preprocessing_truncation="truncate_only_passages",  # truncation strategy
+            include_passage_masks=False,  # unnecessary
+            use_cache=True,  # use cached examples
+            cached_data_path=None,  #
+            init_examples=True,  # if false only class will be created and data won't be loaded
+            cache_dir='data/cache/generative'
+            )
+        data_iter = torchtext.data.Iterator(data,
+                                            shuffle=True,
+                                            sort=False,
+                                            batch_size=1,
+                                            train=False,
+                                            repeat=False,
+                                            device='cpu')
+        for batch in data_iter:
+            print("Batch:")
+            print(batch)
 
 
 if __name__ == "__main__":

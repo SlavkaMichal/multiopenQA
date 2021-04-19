@@ -102,14 +102,23 @@ class Translator:
                          prepare_seq2seq_batch=prepare_seq2seq_batch,
                          decode=decode)
 
-    def translate(self, translator, text):
+    def del_translators(self):
+        for translator in self.translators.keys():
+            del self.translators[translator]
+
+    def translate(self, translator: str, text: List[str]) -> List[str]:
         if translator not in self.translators:
             self.translators[translator] = self.init_translator(translator)
 
-        with torch.no_grad():
-            input = self.translators[translator].tokenizer(text, return_tensors='pt', padding=True).to(self.device)
-            output = self.translators[translator].generate(**input)
-        translations = [self.translators[translator].decode(indeces, skip_special_tokens=True) for indeces in output]
+        try:
+            with torch.no_grad():
+                input = self.translators[translator].tokenizer(text, return_tensors='pt', max_length=512,
+                                                               truncation=True).to(self.device)
+                output = self.translators[translator].generate(**input)
+            translations = [self.translators[translator].decode(indeces, skip_special_tokens=True) for indeces in
+                            output]
+        except Exception as e:
+            raise e
         return translations
 
     def translate_opus_mul(self, text: Union[List[str], str], src_lang, dst_langs: Union[str, List[str]]) -> Dict[
