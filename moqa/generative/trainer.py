@@ -206,7 +206,7 @@ class Trainer:
                 if hasattr(self, "best_ckpt_name"):
                     logging.info(f"Loading best checkpoint {self.best_ckpt_name}")
                     model = torch.load(self.best_ckpt_name, map_location=self.device)
-                if confirm("Save model parameters?", default=False):
+                if config['interactive'] and confirm("Save model parameters?", default=False):
                     serializable_model_name = self.config['reader_transformer_type'].replace("/", "_")
                     saveable_model = get_model(model)
                     saved_name = os.path.join(self.config['save_dir'], f"generative_reader_"
