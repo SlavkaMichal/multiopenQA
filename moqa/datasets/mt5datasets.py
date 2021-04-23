@@ -475,7 +475,7 @@ class MT5Dataset(torchtext.data.Dataset):
 
             if answer_lang is not None and self.translated_retrieval_search:
                 # uses search results based on translations (see translate_samples in preprocess.py)
-                retrieval = sample['queries'][answer_lang]['translated'][lang]['retrieval']
+                retrieval = sample['queries'][answer_lang]['translations'][lang]['retrieval']
             elif lang in self.irrelevant_passage_langs and self.previous_sample is not None:
                 # wont work for first sample
                 retrieval = self.previous_sample['queries'][lang]['retrieval']
@@ -575,7 +575,7 @@ class MT5Dataset(torchtext.data.Dataset):
 
         if not self.translated_retrieval_search:
             top_k_passages_tokens, top_k_passages_raw, top_k_titles_tokens, top_k_titles_raw = \
-                self.select_passages(sample, passage_langs, gold_passages, None)
+                self.select_passages(sample, passage_langs=passage_langs, answer_lang=None, gold_passages=gold_passages)
         else:
             top_k_passages_tokens, top_k_passages_raw, top_k_titles_tokens, top_k_titles_raw = None, None, None, None
 
@@ -584,8 +584,8 @@ class MT5Dataset(torchtext.data.Dataset):
         for answer_lang in answer_langs:
             if self.translated_retrieval_search:
                 top_k_passages_tokens, top_k_passages_raw, top_k_titles_tokens, top_k_titles_raw = \
-                    self.select_passages(sample, passage_langs, gold_passages, answer_lang)
-
+                    self.select_passages(sample, passage_langs=passage_langs, answer_lang=answer_lang,
+                                         gold_passages=gold_passages)
             if top_k_passages_tokens is None:
                 # if failed to retrieve enough passages ignore it, too rare to find better solution
                 continue
