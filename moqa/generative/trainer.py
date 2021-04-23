@@ -444,7 +444,7 @@ class Trainer:
                 translated_total[lang] = 0
 
         loss_list = []
-        if optimizer_dict is None and self.config['results'] is not None:
+        if self.config['log_results']:
             import csv
             model_type = self.config['reader_transformer_type'].replace("/", "_")
             steps = get_model(model).training_steps
@@ -506,11 +506,11 @@ class Trainer:
                     translated_hits[batch.lang[i]] += int(translated_hit)
                     translated_total[batch.lang[i]] += 1
 
-                if optimizer_dict is None and self.config['results'] is not None:
+                if self.config['log_results']:
                     csvw.writerow([
                         hit,
                         batch.question[i],
-                        predicted_answers[i] + predicted_answers_mul[i],
+                        predicted_answers[i],
                         batch.answers[i],
                         self.tokenizer.decode(batch.src[i])
                         ])
@@ -525,7 +525,7 @@ class Trainer:
             EM = lang_hits / lang_total
             logging.info(f"Validation EM {lang}: {EM} ({lang_total}/{lang_hits})")
 
-        if optimizer_dict is None:
+        if self.config['log_results']:
             outf.close()
         if EM > self.best_em and not self.config['test_only']:
             logging.info(f"{EM} ---> New BEST!")
