@@ -249,10 +249,18 @@ class Preprocessor:
             samples: List[Sample] = []
             for i, nq_sample in enumerate(data):
                 is_mapped = nq_sample.get('is_mapped', False)
+                if is_mapped and nq_sample['contexts']['positive_ctx'] is not None:
+                    positive_ctx = nq_sample['contexts']['positive_ctx'] + 1
+                else:
+                    positive_ctx = None
+                if is_mapped and nq_sample['contexts']['hard_negative_ctx'] is not None:
+                    hard_negative_ctx = nq_sample['contexts']['hard_negative_ctx'] + 1
+                else:
+                    hard_negative_ctx = None
                 nq_data = {
                     'dpr_match'          : is_mapped,
-                    'gt_index'           : None if not is_mapped else nq_sample['contexts']['positive_ctx'] + 1,
-                    'hard_negative_index': None if not is_mapped else nq_sample['contexts']['hard_negative_ctx'] + 1
+                    'gt_index'           : positive_ctx,
+                    'hard_negative_index': hard_negative_ctx
                     }
 
                 answers = {}
