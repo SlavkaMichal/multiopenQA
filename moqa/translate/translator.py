@@ -3,7 +3,6 @@ from typing import Union, List, Dict
 import torch
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 from argparse import Namespace
-import ipdb
 
 import requests
 import uuid
@@ -103,8 +102,7 @@ class Translator:
                          decode=decode)
 
     def del_translators(self):
-        for translator in self.translators.keys():
-            del self.translators[translator]
+        self.translators.clear()
 
     def translate(self, translator: str, text: List[str]) -> List[str]:
         if translator not in self.translators:
@@ -155,7 +153,7 @@ class Translator:
 
         return translations
 
-    def to_en(self, text: str, src_lang):
+    def to_en(self, text: List[str], src_lang):
         text_en = self.translate('mul-en', text)[0]
         return text_en
 

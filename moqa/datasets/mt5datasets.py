@@ -26,7 +26,6 @@ MKQA = "data/mkqa/mkqa.json"  #
 DB_PATH = "data/wiki/all_passage.db"  # (lang_id, title, passage)
 
 
-
 class MT5Dataset(torchtext.data.Dataset):
     def __init__(self,
                  datafile: AnyStr,
@@ -36,11 +35,11 @@ class MT5Dataset(torchtext.data.Dataset):
                  db_multi: Optional[PassageDB],  # database with passages
                  langs: List[str],  # languages in an example
                  max_context_size: int,  # maximal amount of contexts per sample
-                 interactive: bool,
                  # if true, program will stop execution on multiple places and confirmation will be required to continue
+                 interactive: bool,
                  multi_lingual_query: bool,  # use multiple languages per question
-                 multi_lingual_answer_lang_code: bool,
                  # for multilingual query adds answer language code before question
+                 multi_lingual_answer_lang_code: bool,
                  translated_query: bool,  # use translated questions
                  translated_retrieval_search: bool,
                  english_ctxs_only: bool,
@@ -48,7 +47,9 @@ class MT5Dataset(torchtext.data.Dataset):
                  use_dpr_golden: bool,  # if available use dpr for golden passage if include_golden_passage is true
                  only_gt_passages: bool,  # make sure that all passages contain answer
                  examples_per_sample: int,  # creates multiple version of a sample but in different languages
+                 # translator device (cuda/cpu)
                  device: str,
+                 irrelevant_passage_langs=None,
                  max_len: Optional[int] = None,  # tokenized input truncation
                  data_size: int = -1,
                  # if lower than zero than does nothing otherwise limits number of processed samples for testing
@@ -82,16 +83,25 @@ class MT5Dataset(torchtext.data.Dataset):
         self.examples_per_sample = examples_per_sample
         self.include_passage_masks = include_passage_masks
         self.preprocessing_truncation = preprocessing_truncation
+        self.irrelevant_passage_langs = irrelevant_passage_langs if irrelevant_passage_langs is not None else []
         self.data_size = data_size
         self.interactive = interactive
 
         logging.info(f"Max number of contexts: {max_context_size}")
         self.context_size = max_context_size // len(self.langs)
+        if self.english_ctxs_only:
+            # if only English passages, make the number of passages the same as it would be if they were not only in English
+            # e.g.: max_context_size = 25, len(langs) = 17, than total number of passages would be 17 and self.context_size = 1
+            # to adjust for English: 1*17 = 17
+            self.context_size *= len(self.langs)
         logging.info(f"Number of contexts per language: {self.context_size}")
         logging.info(f"Languages: {self.langs}")
 
         if 'mt5' not in self.model_name:
             self.translator = Translator(device=device)
+
+        # ugly hack for irrelevant_passage_langs
+        self.previous_sample = None
 
         fields: Dict[str, torchtext.data.Field] = self.prepare_fields(tokenizer.pad_token_id)
         if not include_passage_masks and 'doc_mask' in fields:
@@ -99,23 +109,23 @@ class MT5Dataset(torchtext.data.Dataset):
         self.fields = fields
 
         self.lang_code = {
-            "ar": ">>ar<<",
-            "da": ">>da<<",
-            "de": ">>de<<",
-            "es": ">>es<<",
-            "en": ">>en<<",
-            "fi": ">>fi<<",
-            "fr": ">>fr<<",
-            "hu": ">>hu<<",
-            "it": ">>it<<",
-            "ja": ">>ja<<",
-            "nl": ">>du<<",  # changed language code because nl is not one token
-            "pl": ">>pl<<",
-            "pt": ">>pt<<",
-            "ru": ">>ru<<",
-            "sv": ">>se<<",  # changed language code because sv is not one token
-            "th": ">>th<<",
-            "tr": ">>tr<<"
+            "ar": ">>ar<< ",
+            "da": ">>da<< ",
+            "de": ">>de<< ",
+            "es": ">>es<< ",
+            "en": ">>en<< ",
+            "fi": ">>fi<< ",
+            "fr": ">>fr<< ",
+            "hu": ">>hu<< ",
+            "it": ">>it<< ",
+            "ja": ">>ja<< ",
+            "nl": ">>du<< ",  # changed language code because nl is not one token
+            "pl": ">>pl<< ",
+            "pt": ">>pt<< ",
+            "ru": ">>ru<< ",
+            "sv": ">>se<< ",  # changed language code because sv is not one token
+            "th": ">>th<< ",
+            "tr": ">>tr<< "
             }
 
         if init_examples:
@@ -158,6 +168,10 @@ class MT5Dataset(torchtext.data.Dataset):
         without_psg_suffix = f"_withoutpassages" if not self.include_golden_passage else ""
         multi_lingual = f"_multilingual" if self.multi_lingual_query else "_monolingual"
         lang_code = f"_with-lang-code" if self.multi_lingual_answer_lang_code else ""
+        english = f"_english-ctxs" if self.english_ctxs_only else ""
+        irrelevant = f"_irrelevant-passages-" if self.irrelevant_passage_langs else ""
+        for lang in self.irrelevant_passage_langs:
+            irrelevant += lang
         translated = f"_mt-translated" if self.translated_query else "_mkqa_translations"
         with_psg_masks = "_with_passage_masks" if self.include_passage_masks else ""
         model_name = f"_{self.model_name}" if self.model_name else ""
@@ -172,6 +186,8 @@ class MT5Dataset(torchtext.data.Dataset):
                               f"{translated}" \
                               f"{without_psg_suffix}" \
                               f"_{self.preprocessing_truncation}" \
+                              f"{english}" \
+                              f"{irrelevant}" \
                               f"{model_name}"
         preprocessed_f = preprocessed_f_noext + ".jsonl"
         return preprocessed_f
@@ -371,120 +387,101 @@ class MT5Dataset(torchtext.data.Dataset):
 
         return inputs, document_masks
 
-    def process_sample(self, sample: dict):
-        """
-        Creates numericalized input from raw sample
-        :param sample: raw sample dictionary
-        :return: numericalized sample(s), note that there can be more, as there can be more answers (or one
-        multi-span answer in case of NQ, treated as more answers)
-        [
-          "answers": {lang:[answer]}
-          "example_id",
-          "mkqa",
-          "mlqa",
-          "queries": {lang:{text,
-                            retrieval: [{id, score}],
-                            translations: {lang:text, retrieval: [{id, score}]},
-                            }
-                     }
-        ]
+    def find_gt_passages(self, sample):
+        gt_langs = []
+        gt_indexes = []
+        gt_passages = []
+        gt_titles = []
+        # add gt passage
+        # sample only one gt passage
+        passage_langs_copy = self.langs.copy() if not self.english_ctxs_only else ['en']
+        random.shuffle(passage_langs_copy)
 
-        """
-
-        global titles_raw
-        assert type(self.tokenizer) in [Tokenizer, TokenizerFast], f"Unsupported Tokenizer {type(self.tokenizer)}"
-        assert set(sample['answers']) >= set(self.langs), \
-            f"Number of languages in sample {len(sample['answers'])} is smaller than languages {len(self.langs)}"
-
-        if self.translated_retrieval_search:
-            raise NotImplementedError("Use machine translated queries for retrieval.")
-        if self.english_ctxs_only:
-            raise NotImplementedError("Use only native english contexts.")
-            # return self.process_sample_english_only(sample)
-
-        answers = sample['answers']
-
-        # if golden passage is not available, start with empty set of passages
-        top_k_titles_raw = {}
-        top_k_titles_tokens = {}
-        selected_ids = []
-        top_k_passages_raw = {}
-        top_k_passages_tokens = {}
-        for lang in self.langs:
-            top_k_titles_raw[lang] = []
-            top_k_titles_tokens[lang] = []
-            top_k_passages_raw[lang] = []
-            top_k_passages_tokens[lang] = []
-
-        if self.only_gt_passages:
-            raise NotImplementedError("Only gt passages are not implemented!")
-
-        info = {
-            'langs'       : [],
-            'gt_dpr'      : False,
-            'gt_substring': False,
-            }
-
-        if self.include_golden_passage:
-            gt_lang = None
+        while passage_langs_copy:
             gt_index = None
             gt_passage = None
             gt_title = None
-            # add gt passage
-            # sample only one gt passage
-            langs_copy = self.langs.copy()
-            random.shuffle(langs_copy)
-            while gt_index is None and langs_copy:
-                # searching for gt paragraph
-                gt_lang = langs_copy.pop()
-                info['langs'].append(gt_lang)
-                if self.use_dpr_golden and \
-                        gt_lang == 'en' and \
-                        sample['mkqa'] is not None and \
-                        sample['mkqa']['dpr_match']:
-                    # if dpr mapping is available use it!
-                    gt_index = sample['mkqa']['gt_index']
-                    gt_title, gt_passage = self.db_multi.get_doc_text(gt_index, gt_lang, columns=["title", "passage"])
-                    sample['mkqa']['title'] = gt_title
-                    sample['mkqa']['passage'] = gt_passage
-                    info['gt_dpr'] = True
-                    continue
 
+            gt_lang = passage_langs_copy.pop()
+            if gt_lang in self.irrelevant_passage_langs:
+                # if language should have irrelevant passages than skip it
+                continue
+            if self.use_dpr_golden and \
+                    gt_lang == 'en' and \
+                    sample['mkqa'] is not None and \
+                    sample['mkqa']['dpr_match']:
+                # if dpr mapping is available use it!
+                gt_index = sample['mkqa']['gt_index']
+                gt_title, gt_passage = self.db_multi.get_doc_text(gt_index, gt_lang, columns=["title", "passage"])
+                sample['mkqa']['title'] = gt_title
+                sample['mkqa']['passage'] = gt_passage
+
+            else:
                 retrieval = sample['queries'][gt_lang]['retrieval']
                 for document in retrieval:
-                    if gt_index is not None:
-                        break
                     if 'passage' not in document:
                         # add document if it is missing
                         gt_title, gt_passage = self.db_multi.get_doc_text(document['id'], gt_lang,
                                                                           columns=["title", "passage"])
-                        document['passage'] = gt_passage
                         document['title'] = gt_title
+                        document['passage'] = gt_passage
 
-                    for answer in answers[gt_lang]:
+                    for answer in sample['answers'][gt_lang]:
                         if answer in document['passage']:
                             gt_index = document['id']
-                            info['gt_substring'] = True
                             break
-            # add gt passage to example
             if gt_index is not None:
+                gt_langs.append(gt_lang)
+                gt_indexes.append(gt_index)
+                gt_titles.append(gt_title)
+                gt_passages.append(gt_passage)
+
+                # if not only_gt_passages return only one
+                if not self.only_gt_passages:
+                    break
+
+        return gt_passages, gt_titles, gt_langs, gt_indexes
+
+    def select_passages(self, sample, passage_langs, answer_lang, gold_passages):
+        # take rest of the passages as top-k, if available
+        # english_ctxs_only - only english contexts
+        # only_gt_passages  - at least one golden passage is guaranteed
+        # translated_retrieval_search - use machine translated questions for retrieval
+        # include_golden_passage - use golden passage if available
+
+        top_k_titles_raw = dict.fromkeys(passage_langs, [])
+        top_k_titles_tokens = dict.fromkeys(passage_langs, [])
+        top_k_passages_raw = dict.fromkeys(passage_langs, [])
+        top_k_passages_tokens = dict.fromkeys(passage_langs, [])
+        selected_ids = []
+
+        if gold_passages is not None:
+            # add gt passages
+            gt_passages, gt_titles, gt_langs, gt_indexes = gold_passages
+            for gt_passage, gt_title, gt_lang, gt_index in zip(gt_passages, gt_titles, gt_langs, gt_indexes):
                 gt_passage = " " + gt_passage
                 # if model is not multilingual translate passage
-                if 'mt5' not in self.model_name and lang != 'en':
+                if 'mt5' not in self.model_name and gt_lang != 'en':
                     gt_passage = self.translator.translate('mul-en', [gt_passage])[0]
                     gt_title = self.translator.translate('mul-en', [gt_title])[0]
 
+                selected_ids.append((gt_index, gt_lang))
                 top_k_passages_tokens[gt_lang] = [self.tokenizer.encode(gt_passage, add_special_tokens=False)]
                 top_k_passages_raw[gt_lang] = [gt_passage]
                 top_k_titles_tokens[gt_lang] = [self.tokenizer.encode(gt_title, add_special_tokens=False)]
                 top_k_titles_raw[gt_lang] = [gt_title]
 
-                selected_ids.append((gt_index, gt_lang))
+        for lang in passage_langs:
 
-        # take rest of the passages as top-k, if available
-        for lang in self.langs:
-            retrieval = sample['queries'][lang]['retrieval']
-            # retrieval = sorted(retrieval, key=lambda x: x['score'], reverse=True) # should be sorted
+            if answer_lang is not None and self.translated_retrieval_search:
+                # uses search results based on translations (see translate_samples in preprocess.py)
+                retrieval = sample['queries'][answer_lang]['translated'][lang]['retrieval']
+            elif lang in self.irrelevant_passage_langs and self.previous_sample is not None:
+                # wont work for first sample
+                retrieval = self.previous_sample['queries'][lang]['retrieval']
+            else:
+                retrieval = sample['queries'][lang]['retrieval']
+
             for document in retrieval:
                 if len(top_k_titles_raw[lang]) >= self.context_size:
                     # if there are enough passages continue to next language
@@ -514,8 +511,8 @@ class MT5Dataset(torchtext.data.Dataset):
                 if 'mt5' not in self.model_name and lang != 'en':
                     passage = self.translator.translate('mul-en', [passage])[0]
                     title = self.translator.translate('mul-en', [title])[0]
-                tokenized_passage = self.tokenizer.encode(passage, add_special_tokens=False)
-                top_k_passages_tokens[lang].append(tokenized_passage)
+
+                top_k_passages_tokens[lang].append(self.tokenizer.encode(passage, add_special_tokens=False))
                 top_k_passages_raw[lang].append(passage)
                 top_k_titles_tokens[lang].append(self.tokenizer.encode(title, add_special_tokens=False))
                 top_k_titles_raw[lang].append(title)
@@ -531,34 +528,104 @@ class MT5Dataset(torchtext.data.Dataset):
                 logging.info(f"Got: {len(passages)}")
                 if self.interactive:
                     ipdb.set_trace()
+                return None, None, None, None
+
+        return top_k_passages_tokens, top_k_passages_raw, top_k_titles_tokens, top_k_titles_raw
+
+    def process_sample(self, sample: dict):
+        """
+        Creates numericalized input from raw sample
+        :param sample: raw sample dictionary
+        :return: numericalized sample(s), note that there can be more, as there can be more answers (or one
+        multi-span answer in case of NQ, treated as more answers)
+
+        sample structure:
+        [
+          answers: {lang:[answer]}
+          example_id,
+          mkqa,
+          mlqa,
+          queries: {
+                    lang: {
+                        text,
+                        retrieval: [{id, score}],
+                        translations: {
+                            lang:text,
+                            retrieval: [{id, score}]
+                            }
+                        }
+                   }
+        ]
+
+        """
+
+        assert type(self.tokenizer) in [Tokenizer, TokenizerFast], f"Unsupported Tokenizer {type(self.tokenizer)}"
+        assert set(sample['answers']) >= set(self.langs), \
+            f"Number of languages in sample {len(sample['answers'])} is smaller than languages {len(self.langs)}"
+
+        passage_langs = self.langs if not self.english_ctxs_only else ['en']
+        # if golden passage is not available, start with empty set of passages
+
+        gold_passages = None
+        if self.include_golden_passage or self.only_gt_passages:
+            gold_passages = self.find_gt_passages(sample)
+            if self.only_gt_passages and len(gold_passages[0]) == 0:
+                # if no golden passage was found discard the sample
                 return []
-        # assert len(top_k_passages_tokens) == number_of_contexts, \
-        #    f"Passages: {len(top_k_passages_tokens)}, Context size: {number_of_contexts} \n{selected_ids}"
+
+        if not self.translated_retrieval_search:
+            top_k_passages_tokens, top_k_passages_raw, top_k_titles_tokens, top_k_titles_raw = \
+                self.select_passages(sample, passage_langs, gold_passages, None)
+        else:
+            top_k_passages_tokens, top_k_passages_raw, top_k_titles_tokens, top_k_titles_raw = None, None, None, None
 
         examples = []
         answer_langs = random.sample(self.langs, self.examples_per_sample)
         for answer_lang in answer_langs:
+            if self.translated_retrieval_search:
+                top_k_passages_tokens, top_k_passages_raw, top_k_titles_tokens, top_k_titles_raw = \
+                    self.select_passages(sample, passage_langs, gold_passages, answer_lang)
+
+            if top_k_passages_tokens is None:
+                # if failed to retrieve enough passages ignore it, too rare to find better solution
+                continue
+
             if self.multi_lingual_query:
                 answer_lang_code = self.lang_code[answer_lang]
-                # question is in the same language as passage
-                # answer language is indicated by the first question
-                question = sample['queries'][answer_lang]['text']
-                if self.multi_lingual_answer_lang_code:
-                    question = answer_lang_code + question
 
-                question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
-                input_sequences, document_masks = self.assemble_input_sequences(question=question_tokens,
-                                                                                passages=top_k_passages_tokens[
-                                                                                    answer_lang],
-                                                                                titles=top_k_titles_tokens[answer_lang])
-                titles_raw = top_k_titles_raw[answer_lang]
-                titles_tokens = top_k_titles_tokens[answer_lang]
-                for lang in self.langs:
-                    # this was already added
-                    if lang == answer_lang:
+                # prepend passage and answer in answer language
+                if not self.multi_lingual_answer_lang_code:
+                    # question is in the same language as passage
+                    # answer language is indicated by the first question
+                    question = sample['queries'][answer_lang]['text']
+                    if self.multi_lingual_answer_lang_code:
+                        # TODO just in case a new switch will be added
+                        question = answer_lang_code + question
+
+                    question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
+                    input_sequences, document_masks = self.assemble_input_sequences(question=question_tokens,
+                                                                                    passages=top_k_passages_tokens[
+                                                                                        answer_lang],
+                                                                                    titles=top_k_titles_tokens[
+                                                                                        answer_lang])
+                    titles_raw = top_k_titles_raw[answer_lang]
+                    titles_tokens = top_k_titles_tokens[answer_lang]
+                else:
+                    input_sequences = []
+                    document_masks = []
+                    titles_raw = []
+                    titles_tokens = []
+
+                for lang in passage_langs:  # passage_langs is ['en'] if self.english_ctxs_only is true
+                    if lang == answer_lang and not self.multi_lingual_answer_lang_code:
+                        # if answer lang is hinted by the first question than this passage was already added
+                        # if answer lang is hinted by language code in front of question than it was not added
+                        # TODO if a new switch is added change this condition
                         continue
 
                     question = sample['queries'][lang]['text']
+                    if self.translated_query and lang != answer_lang:
+                        question = sample['queries'][answer_lang]['translations'][lang]['text']
                     if self.multi_lingual_answer_lang_code:
                         question = answer_lang_code + question
                     question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
@@ -580,9 +647,9 @@ class MT5Dataset(torchtext.data.Dataset):
                         question = sample['queries']['en']['text']
                 question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
                 # flatten passages in language order
-                passages_tokens = sum([top_k_passages_tokens[lang] for lang in self.langs], [])
-                titles_tokens = sum([top_k_titles_tokens[lang] for lang in self.langs], [])
-                titles_raw = sum([top_k_titles_raw[lang] for lang in self.langs], [])
+                passages_tokens = sum([top_k_passages_tokens[lang] for lang in passage_langs], [])
+                titles_tokens = sum([top_k_titles_tokens[lang] for lang in passage_langs], [])
+                titles_raw = sum([top_k_titles_raw[lang] for lang in passage_langs], [])
                 input_sequences, document_masks = self.assemble_input_sequences(question=question_tokens,
                                                                                 passages=passages_tokens,
                                                                                 titles=titles_tokens)
@@ -611,11 +678,9 @@ class MT5Dataset(torchtext.data.Dataset):
             if not self.include_doc_masks:
                 del example["doc_masks"]
             examples.append(example)
-        return examples
 
-    def process_sample_english_only(self, sample: dict):
-        answers = sample['answers']
-        pass
+        self.previous_sample = sample
+        return examples
 
 
 def main():
@@ -645,6 +710,9 @@ def main():
             preprocessing_truncation="truncate_only_passages",  # truncation strategy
             include_passage_masks=False,  # unnecessary
             use_cache=True,  # use cached examples
+            multi_lingual_answer_lang_code=True,
+            english_ctxs_only=False,
+            device='cpu',
             cached_data_path=None,  #
             init_examples=True,  # if false only class will be created and data won't be loaded
             cache_dir='data/cache/generative'

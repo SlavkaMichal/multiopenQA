@@ -550,8 +550,8 @@ class Trainer:
 
         include_passage_masks = config["fusion_strategy"] == "passages"
 
-        model_name = config['reader_transformer_type']
-        model_name = model_name if model_name == 't5-small' else ""
+        model_name = config['reader_transformer_type'].replace('/', '-')
+        # model_name = model_name if model_name == 't5-small' else ""
 
         train = None
         val = None
@@ -636,7 +636,7 @@ class Trainer:
                                    use_dpr_golden=config["use_dpr_golden"],
                                    # if available use dpr for golden passage if include_golden_passage is true
                                    only_gt_passages=config["only_gt_passages"],
-                                   examples_per_sample=5,
+                                   examples_per_sample=config["examples_per_sample"],
                                    # creates multiple version of a sample but in different languages
                                    max_len=config["max_len"],
                                    data_size=config["data_size"],  # limit number of examples for debugging
@@ -667,7 +667,7 @@ class Trainer:
                                  use_dpr_golden=config["use_dpr_golden"],
                                  # if available use dpr for golden passage if include_golden_passage is true
                                  only_gt_passages=config["only_gt_passages"],
-                                 examples_per_sample=5,
+                                 examples_per_sample=config["examples_per_sample"],
                                  # creates multiple version of a sample but in different languages
                                  max_len=config["max_len"],
                                  data_size=config["data_size"],  # limit number of examples for debugging
@@ -682,6 +682,7 @@ class Trainer:
                                  )
             if 'test' in config['data']:
                 test = MT5Dataset(config["data"]['test'],
+                                  irrelevant_passage_langs=config['test_irrelevant_passage_langs'],
                                   preprocess=config["preprocess"],
                                   model_name=model_name,
                                   tokenizer=self.tokenizer,
@@ -691,16 +692,13 @@ class Trainer:
                                   interactive=config["interactive"],
                                   multi_lingual_query=config["multi_lingual_query"],
                                   multi_lingual_answer_lang_code=config["multi_lingual_answer_lang_code"],
-                                  # use multiple languages per question
-                                  translated_query=config["translated_query"],  # use translated questions
-                                  translated_retrieval_search=config['translated_retrieval_search'],
                                   english_ctxs_only=config["english_ctxs_only"],
-                                  include_golden_passage=config["include_golden_passage"],
-                                  use_dpr_golden=config["use_dpr_golden"],
-                                  # if available use dpr for golden passage if include_golden_passage is true
-                                  only_gt_passages=config["only_gt_passages"],
-                                  examples_per_sample=5,
-                                  # creates multiple version of a sample but in different languages
+                                  translated_query=config["test_translated_query"],  # use translated questions
+                                  translated_retrieval_search=config["test_translated_retrieval_search"],
+                                  include_golden_passage=config["test_include_golden_passage"],
+                                  use_dpr_golden=config["test_use_dpr_golden"],
+                                  only_gt_passages=config["test_only_gt_passages"],
+                                  examples_per_sample=len(config['languages']),
                                   max_len=config["max_len"],
                                   data_size=config["data_size"],  # limit number of examples for debugging
                                   is_training=True,  # does not tokenize answers
