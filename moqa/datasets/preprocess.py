@@ -14,6 +14,7 @@ from moqa.translate import Translator
 from argparse import Namespace
 from typing import TypedDict, Optional
 import torch
+import ipdb
 
 logging.basicConfig(
     format=f"%(asctime)s:%(filename)s:%(lineno)d:%(levelname)s: %(message)s",
@@ -54,6 +55,7 @@ def main(args):
     preprocessor = Preprocessor(topk=args.topk,
                                 mlqa_path=args.mlqa_path,
                                 mkqa_path=args.mkqa_path,
+                                nq_open_path=args.nq_open_path,
                                 search_with_title=args.search_with_title,
                                 langs=args.langs,
                                 translate=args.translate,
@@ -72,10 +74,12 @@ class Preprocessor:
     MKQA_LUCENE_LANGS = {"ar", "da", "de", "es", "en", "fi", "fr", "hu", "it", "ja",
                          "ko", "nl", "no", "pl", "pt", "ru", "sv", "th", "tr"}
     MLQA_LANGS = {"ar", "de", "en", "es", "hi", "vi", "zh"}
-    MLQA_PATH = "data/mlqa/MLQA_V1"
+    MLQA_PATH = "data/mlqa/MLQA_V1/"
     MKQA_PATH = "data/mkqa/mkqa.jsonl"
-    DPR_MAP = {'dev'  : "data/data_martin_nq/nq-open_dev_short_maxlen_5_ms_with_dpr_annotation.jsonl",
-               'train': "data/data_martin_nq/nq-open_train_short_maxlen_5_ms_with_dpr_annotation.jsonl"}
+    NQ_OPEN_PATH = "data/data_martin_nq"
+    NQ_OPEN_FILES = {'dev'  : "nq-open_dev_short_maxlen_5_ms_with_dpr_annotation.jsonl",
+                     'train': "nq-open_train_short_maxlen_5_ms_with_dpr_annotation.jsonl",
+                     'test' : "NQ-open-test.jsonl"}
 
     # ORIG -> one question has sample in each language with MKQA translations, question is repeated in original language
     # TRANSLATE_QUESTION -> each question has sample in each language with MT translations
@@ -87,6 +91,7 @@ class Preprocessor:
                  topk=20,
                  mlqa_path=MLQA_PATH,
                  mkqa_path=MKQA_PATH,
+                 nq_open_path=NQ_OPEN_PATH,
                  search_with_title=False,
                  langs: str = 'opus-mul',
                  translate=True,
@@ -97,6 +102,7 @@ class Preprocessor:
 
         self.mlqa_path = mlqa_path
         self.mkqa_path = mkqa_path
+        self.nq_open_path = nq_open_path
         self.search_with_title = search_with_title
         self.search_field = 'context_title' if search_with_title else 'context'
         self.topk = topk
@@ -114,15 +120,6 @@ class Preprocessor:
             'mlqa-mkqa'  : list(self.MLQA_LANGS.intersection(self.MKQA_LUCENE_LANGS)),
             }
         self.langs = self.languages[langs]
-
-        # map dpr by id
-        self.dpr_map = {}
-        with jl.open(self.DPR_MAP['train']) as dpr_map:
-            for sample in dpr_map:
-                self.dpr_map[sample['example_id']] = sample
-        with jl.open(self.DPR_MAP['dev']) as dpr_map:
-            for sample in dpr_map:
-                self.dpr_map[sample['example_id']] = sample
 
         for lang in self.langs:
             # add indexes
@@ -162,7 +159,7 @@ class Preprocessor:
             writer.write_all(samples)
             writer.close()
 
-    def preprocess(self, dataset, mkqa_split_ratio=None, data_file=None) -> List[Dict]:
+    def preprocess(self, dataset, mkqa_split_ratio=None, data_file=None) -> List[Sample]:
         if self.test:
             ipdb.set_trace()
         if dataset == 'mkqa':
@@ -189,6 +186,18 @@ class Preprocessor:
                 desc = f"Processing {os.path.basename(file)} ({i}/{num_files})"
                 samples += self.process_mlqa(lang, file, desc)
                 i += 1
+            self.save_samples(samples, data_file, dataset, "TEST")
+        elif dataset == 'nq-open':
+            nq_data_file = os.path.join(self.nq_open_path, self.NQ_OPEN_FILES['train'])
+            samples = self.process_nq_open(nq_data_file)
+            self.save_samples(samples, data_file, dataset, "TRAIN")
+
+            nq_data_file = os.path.join(self.nq_open_path, self.NQ_OPEN_FILES['dev'])
+            samples = self.process_nq_open(nq_data_file)
+            self.save_samples(samples, data_file, dataset, "DEV")
+
+            nq_data_file = os.path.join(self.nq_open_path, self.NQ_OPEN_FILES['test'])
+            samples = self.process_nq_open(nq_data_file)
             self.save_samples(samples, data_file, dataset, "TEST")
         else:
             raise ValueError(f"Dataset: {dataset} is not supported")
@@ -229,6 +238,52 @@ class Preprocessor:
 
         return sample
 
+    def process_nq_open(self, file):
+        # count number of samples
+        total = sum(1 for _ in jl.open(file))
+
+        with tqdm(total=total, desc="Preprocessing MKQA") as pbar, jl.open(self.mkqa_path) as data:
+            samples: List[Sample] = []
+            for i, nq_sample in enumerate(data):
+                is_mapped = nq_sample.get('is_mapped', False)
+                nq_data = {
+                    'dpr_match'          : is_mapped,
+                    'gt_index'           : None if not is_mapped else nq_sample['contexts']['positive_ctx'] + 1,
+                    'hard_negative_index': None if not is_mapped else nq_sample['contexts']['hard_negative_ctx'] + 1
+                    }
+
+                answers = {}
+                queries = {}
+                if 'answer' in nq_sample:
+                    answers['en'] = nq_sample['answer']
+                elif 'single_span_answers' in nq_sample and nq_sample['single_span_answers']:
+                    answers['en'] = nq_sample['single_span_answers']
+                elif 'multi_span_answers' in nq_sample and nq_sample['multi_span_answers']:
+                    answers['en'] = nq_sample['multi_span_answers']
+                else:
+                    ipdb.set_trace()
+                    continue
+
+                # add aliases to correct answers
+                queries['en'] = {'text': nq_sample['question_text'], 'retrieval': [], 'translations': {}}
+
+                sample: Sample = {
+                    'mlqa'      : None,
+                    'mkqa'      : nq_data,
+                    'queries'   : queries,
+                    'answers'   : answers,
+                    'example_id': nq_sample['example_id'],
+                    }
+
+                samples.append(sample)
+                pbar.update()
+                if self.test:
+                    break
+
+        self.search_paragraphs(samples)
+
+        return samples
+
     def process_mkqa(self, split_ratio=None):
         total = 10000
         split_size = 0
@@ -237,6 +292,17 @@ class Preprocessor:
             split_size = split_ratio.size[0]
             if split_size != 2 or split_size != 3:
                 raise ValueError(f"Split ratio must have 2 or 3 elements!")
+
+        # map dpr by id
+        self.dpr_map = {}
+        nq_data_file = os.path.join(self.NQ_OPEN_PATH, self.NQ_OPEN_FILES['train'])
+        with jl.open(nq_data_file) as dpr_map:
+            for sample in dpr_map:
+                self.dpr_map[sample['example_id']] = sample
+        nq_data_file = os.path.join(self.NQ_OPEN_PATH, self.NQ_OPEN_FILES['dev'])
+        with jl.open(nq_data_file) as dpr_map:
+            for sample in dpr_map:
+                self.dpr_map[sample['example_id']] = sample
 
         with tqdm(total=total, desc="Preprocessing MKQA") as pbar, jl.open(self.mkqa_path) as data:
             skipping = 0
@@ -359,6 +425,8 @@ if __name__ == "__main__":
     parser.add_argument('--topk', type=int, default=20)
     parser.add_argument('--mlqa-path', type=str, default=Preprocessor.MLQA_PATH)
     parser.add_argument('--mkqa-path', type=str, default=Preprocessor.MKQA_PATH)
+    parser.add_argument('--nq-open-path', type=str, default=Preprocessor.NQ_OPEN_PATH)
+
     parser.add_argument('--search-with-title', type=bool, default=False)
     parser.add_argument('--langs', type=str, default='opus-mul',
                         choices=['opus-mul', 'mkqa-lucene', 'mlqa', 'mlqa-mkqa'])
@@ -366,7 +434,7 @@ if __name__ == "__main__":
     parser.add_argument('--not-retrieval', dest='retrieval', action='store_false')
     parser.add_argument('--test', action='store_true')
 
-    parser.add_argument('--dataset', type=str, default='mkqa', choices=['mkqa', 'mlqa'])
+    parser.add_argument('--dataset', type=str, default='mkqa', choices=['mkqa', 'mlqa', 'nq-open'])
     parser.add_argument('--mkqa_split_ratio', type=float, default=None, nargs='+')
     parser.add_argument('--save-file', type=str, default=None)
 
