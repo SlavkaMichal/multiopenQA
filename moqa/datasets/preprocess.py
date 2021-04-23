@@ -118,6 +118,7 @@ class Preprocessor:
             'mkqa-lucene': list(self.MKQA_LUCENE_LANGS),
             'mlqa'       : list(self.MLQA_LANGS),
             'mlqa-mkqa'  : list(self.MLQA_LANGS.intersection(self.MKQA_LUCENE_LANGS)),
+            'en-only'    : ['en'],
             }
         self.langs = self.languages[langs]
 
