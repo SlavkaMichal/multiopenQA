@@ -386,7 +386,7 @@ class Preprocessor:
 
     def translate_samples(self, samples: List[Sample]):
         if not self.translate:
-            return []
+            return samples
         with tqdm(total=len(samples), desc='translating...') as pbar:
             for sample in samples:
                 for lang, query in sample['queries'].items():
@@ -400,7 +400,7 @@ class Preprocessor:
 
     def search_paragraphs(self, samples: List[Sample]):
         if not self.retrieval:
-            return []
+            return samples
         with tqdm(total=len(samples), desc='searching...') as pbar:
             for sample in samples:
                 for lang, query in sample['queries'].items():
@@ -430,9 +430,9 @@ if __name__ == "__main__":
 
     parser.add_argument('--search-with-title', type=bool, default=False)
     parser.add_argument('--langs', type=str, default='opus-mul',
-                        choices=['opus-mul', 'mkqa-lucene', 'mlqa', 'mlqa-mkqa'])
+                        choices=['opus-mul', 'mkqa-lucene', 'mlqa', 'mlqa-mkqa', 'en-only'])
     parser.add_argument('--no-translation', dest='translate', action='store_false')
-    parser.add_argument('--not-retrieval', dest='retrieval', action='store_false')
+    parser.add_argument('--no-retrieval', dest='retrieval', action='store_false')
     parser.add_argument('--test', action='store_true')
 
     parser.add_argument('--dataset', type=str, default='mkqa', choices=['mkqa', 'mlqa', 'nq-open'])
