@@ -152,6 +152,8 @@ class Preprocessor:
         return os.path.join(path, name + '.jsonl')
 
     def save_samples(self, samples: List[Sample], data_file, dataset, split):
+        if self.test:
+            return
         data_file = data_file if data_file is not None else self.get_data_name(dataset, split)
         logging.info(f"Saving {dataset} {split} set into {data_file}")
         with open(data_file, 'w') as fp:
@@ -243,7 +245,7 @@ class Preprocessor:
         # count number of samples
         total = sum(1 for _ in jl.open(file))
 
-        with tqdm(total=total, desc="Preprocessing MKQA") as pbar, jl.open(self.mkqa_path) as data:
+        with tqdm(total=total, desc="Preprocessing NQ-Open") as pbar, jl.open(file) as data:
             samples: List[Sample] = []
             for i, nq_sample in enumerate(data):
                 is_mapped = nq_sample.get('is_mapped', False)
