@@ -435,7 +435,7 @@ class MT5Dataset(torchtext.data.Dataset):
                 sample['mkqa']['title'] = gt_title
                 sample['mkqa']['passage'] = gt_passage
                 hit_stats['hit_dpr'] = True
-                hit_stats['hit_lang'] = miss_langs.pop()
+                hit_stats['hit_lang'] = gt_lang
 
             else:
                 retrieval = sample['queries'][gt_lang]['retrieval']
@@ -451,7 +451,7 @@ class MT5Dataset(torchtext.data.Dataset):
                         if answer in document['passage']:
                             gt_index = document['id']
                             hit_stats['hit_k'] = k
-                            hit_stats['hit_lang'] = miss_langs.pop()
+                            hit_stats['hit_lang'] = gt_lang
                             break
             if gt_index is not None:
                 gt_langs.append(gt_lang)
