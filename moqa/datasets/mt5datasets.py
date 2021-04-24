@@ -409,7 +409,7 @@ class MT5Dataset(torchtext.data.Dataset):
         random.shuffle(passage_langs_copy)
 
         miss_langs = []
-        gt_stats = {'hit_stats': []}
+        gt_stats = {'hit_stats': [], 'miss_langs': None}
         while passage_langs_copy:
             hit_stats = {
                 'hit_k'   : -1,
@@ -553,10 +553,10 @@ class MT5Dataset(torchtext.data.Dataset):
                 logging.info(f"Got: {len(passages)}")
                 if self.interactive:
                     ipdb.set_trace()
-                self.stats['passage_selection'].append({'failed': True, 'gt': gold_passages is not None})
+                self.stats['passage_selection'].append({'failed': True, 'gt': bool(gold_passages is not None)})
                 return None, None, None, None
 
-        self.stats['passage_selection'].append({'failed'})
+        self.stats['passage_selection'].append({'failed': False, 'gt': bool(gold_passages is not None)})
         return top_k_passages_tokens, top_k_passages_raw, top_k_titles_tokens, top_k_titles_raw
 
     def process_sample(self, sample: dict):
