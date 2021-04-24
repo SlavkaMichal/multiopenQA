@@ -684,12 +684,17 @@ class MT5Dataset(torchtext.data.Dataset):
             answer_raw = [sample['answers'][answer_lang][0]]
             if 'mt5' not in self.model_name and answer_lang != 'en':
                 answer_raw = [sample['answers']['en'][0]]
+            if type(answer_raw[0]) == list:
+                # this is due to two multiple formats in nq-open preprocessed data
+                answer_raw = [answer_raw[0][0]]
             target_sequences = self.assemble_target_sequences(answers=answer_raw,
                                                               tokenizer=self.tokenizer) if self.is_training else [
                 self.tokenizer.pad_token_id]
             answers_raw = sample['answers'][answer_lang]
             if 'mt5' not in self.model_name and answer_lang != 'en':
                 answers_raw += sample['answers']['en']
+            if type(answers_raw[0]) == list:
+                answers_raw = answers_raw[0]
             # useful for debugging
             # rev_input = " ".join(tokenizer.convert_ids_to_tokens(inputSequence))
             # rev_target = " ".join(tokenizer.convert_ids_to_tokens(targetSequence))
