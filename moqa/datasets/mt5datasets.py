@@ -1,3 +1,5 @@
+import json
+
 import os
 import random
 import string
@@ -102,6 +104,11 @@ class MT5Dataset(torchtext.data.Dataset):
 
         # ugly hack for irrelevant_passage_langs
         self.previous_sample = None
+        self.stats = {
+            'passage_selection': [],
+            'gt_stats'         : [],
+            'answer_langs'     : [],
+            }
 
         fields: Dict[str, torchtext.data.Field] = self.prepare_fields(tokenizer.pad_token_id)
         if not include_passage_masks and 'doc_mask' in fields:
@@ -141,7 +148,7 @@ class MT5Dataset(torchtext.data.Dataset):
                     examples = self.get_example_list()
 
                     logging.info(f"Saving {len(examples)} examples")
-                    self.save(preprocessed_f, examples)
+                    self.save(preprocessed_f, examples, self.stats)
 
                     logging.info(f"Dataset {preprocessed_f} created in {time.time() - s_time:.2f}s")
                     s_time = time.time()
@@ -193,10 +200,13 @@ class MT5Dataset(torchtext.data.Dataset):
         return preprocessed_f
 
     @staticmethod
-    def save(preprocessed_f: string, raw_examples: List[Dict]):
+    def save(preprocessed_f: string, raw_examples: List[Dict], stats):
         with jsonlines.open(preprocessed_f, "w") as wf:
             for e in tqdm.tqdm(raw_examples, desc=f"Saving processed examples"):
                 wf.write(e)
+
+        with open(f'{preprocessed_f}_stats.json', mode='w') as fp:
+            json.dump(stats, fp)
 
     def load(self,
              preprocessed_f: string,
@@ -298,6 +308,7 @@ class MT5Dataset(torchtext.data.Dataset):
                             target_example = " ".join(self.tokenizer.convert_ids_to_tokens(possible_target))
                             logging.info("target:")
                             logging.info(target_example)
+
         return examples
 
     @staticmethod
@@ -397,12 +408,20 @@ class MT5Dataset(torchtext.data.Dataset):
         passage_langs_copy = self.langs.copy() if not self.english_ctxs_only else ['en']
         random.shuffle(passage_langs_copy)
 
+        miss_langs = []
+        gt_stats = {'hit_stats': []}
         while passage_langs_copy:
+            hit_stats = {
+                'hit_k'   : -1,
+                'hit_dpr' : False,
+                'hit_lang': ''
+                }
             gt_index = None
             gt_passage = None
             gt_title = None
 
             gt_lang = passage_langs_copy.pop()
+            miss_langs.append(gt_lang)
             if gt_lang in self.irrelevant_passage_langs:
                 # if language should have irrelevant passages than skip it
                 continue
@@ -415,10 +434,12 @@ class MT5Dataset(torchtext.data.Dataset):
                 gt_title, gt_passage = self.db_multi.get_doc_text(gt_index, gt_lang, columns=["title", "passage"])
                 sample['mkqa']['title'] = gt_title
                 sample['mkqa']['passage'] = gt_passage
+                hit_stats['hit_dpr'] = True
+                hit_stats['hit_lang'] = miss_langs.pop()
 
             else:
                 retrieval = sample['queries'][gt_lang]['retrieval']
-                for document in retrieval:
+                for k, document in enumerate(retrieval):
                     if 'passage' not in document:
                         # add document if it is missing
                         gt_title, gt_passage = self.db_multi.get_doc_text(document['id'], gt_lang,
@@ -429,6 +450,8 @@ class MT5Dataset(torchtext.data.Dataset):
                     for answer in sample['answers'][gt_lang]:
                         if answer in document['passage']:
                             gt_index = document['id']
+                            hit_stats['hit_k'] = k
+                            hit_stats['hit_lang'] = miss_langs.pop()
                             break
             if gt_index is not None:
                 gt_langs.append(gt_lang)
@@ -437,9 +460,12 @@ class MT5Dataset(torchtext.data.Dataset):
                 gt_passages.append(gt_passage)
 
                 # if not only_gt_passages return only one
+                gt_stats['hit_stats'].append(hit_stats)
                 if not self.only_gt_passages:
                     break
 
+        gt_stats['miss_langs'] = miss_langs
+        self.stats['gt_stats'].append(gt_stats)
         return gt_passages, gt_titles, gt_langs, gt_indexes
 
     def select_passages(self, sample, passage_langs, answer_lang, gold_passages):
@@ -448,7 +474,6 @@ class MT5Dataset(torchtext.data.Dataset):
         # only_gt_passages  - at least one golden passage is guaranteed
         # translated_retrieval_search - use machine translated questions for retrieval
         # include_golden_passage - use golden passage if available
-
         top_k_titles_raw = dict.fromkeys(passage_langs, [])
         top_k_titles_tokens = dict.fromkeys(passage_langs, [])
         top_k_passages_raw = dict.fromkeys(passage_langs, [])
@@ -528,8 +553,10 @@ class MT5Dataset(torchtext.data.Dataset):
                 logging.info(f"Got: {len(passages)}")
                 if self.interactive:
                     ipdb.set_trace()
+                self.stats['passage_selection'].append({'failed': True, 'gt': gold_passages is not None})
                 return None, None, None, None
 
+        self.stats['passage_selection'].append({'failed'})
         return top_k_passages_tokens, top_k_passages_raw, top_k_titles_tokens, top_k_titles_raw
 
     def process_sample(self, sample: dict):
@@ -581,6 +608,7 @@ class MT5Dataset(torchtext.data.Dataset):
 
         examples = []
         answer_langs = random.sample(self.langs, self.examples_per_sample)
+        self.stats['answer_langs'].append(answer_langs)
         for answer_lang in answer_langs:
             if self.translated_retrieval_search:
                 top_k_passages_tokens, top_k_passages_raw, top_k_titles_tokens, top_k_titles_raw = \
