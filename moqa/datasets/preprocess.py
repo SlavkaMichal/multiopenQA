@@ -292,7 +292,7 @@ class Preprocessor:
                     'mkqa'      : nq_data,
                     'queries'   : queries,
                     'answers'   : answers,
-                    'example_id': nq_sample['example_id'],
+                    'example_id': nq_sample['example_id'] if 'example_id' in nq_sample else 'test',
                     }
 
                 samples.append(sample)
