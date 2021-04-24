@@ -293,10 +293,10 @@ class Trainer:
         updated = False
 
         # Calculate total number of updates per epoch
-        total = len(data_iter.data()) // data_iter.batch_size + 1
+        total = (len(data_iter.data()) // data_iter.batch_size + 1) - 1
         logging.info(f"Total number of examples: {total}")
 
-        it = tqdm(enumerate(data_iter), total=total - 1)
+        it = tqdm(enumerate(data_iter), total=total)
 
         # For progressive  training loss  reporting
         total_losses = []
@@ -411,7 +411,7 @@ class Trainer:
                 else:
                     raise e
         if not updated:
-            # Do the last step if needed
+            # Do the last step if needed 48 49
             logging.info(f"Last update {len(losses_per_update), update_ratio}")
             torch.nn.utils.clip_grad_norm_(filter(lambda p: p.requires_grad, model.parameters()),
                                            self.config["max_grad_norm"])

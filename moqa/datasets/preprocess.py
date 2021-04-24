@@ -192,16 +192,21 @@ class Preprocessor:
             self.save_samples(samples, data_file, dataset, "TEST")
         elif dataset == 'nq-open':
             nq_data_file = os.path.join(self.nq_open_path, self.NQ_OPEN_FILES['train'])
-            samples = self.process_nq_open(nq_data_file)
-            self.save_samples(samples, data_file, dataset, "TRAIN")
+            samples = []
+
+            if not os.path.exists(self.get_data_name(dataset, "TRAIN")):
+                samples = self.process_nq_open(nq_data_file)
+                self.save_samples(samples, data_file, dataset, "TRAIN")
 
             nq_data_file = os.path.join(self.nq_open_path, self.NQ_OPEN_FILES['dev'])
-            samples = self.process_nq_open(nq_data_file)
-            self.save_samples(samples, data_file, dataset, "DEV")
+            if not os.path.exists(self.get_data_name(dataset, "DEV")):
+                samples = self.process_nq_open(nq_data_file)
+                self.save_samples(samples, data_file, dataset, "DEV")
 
             nq_data_file = os.path.join(self.nq_open_path, self.NQ_OPEN_FILES['test'])
-            samples = self.process_nq_open(nq_data_file)
-            self.save_samples(samples, data_file, dataset, "TEST")
+            if not os.path.exists(self.get_data_name(dataset, "TEST")):
+                samples = self.process_nq_open(nq_data_file)
+                self.save_samples(samples, data_file, dataset, "TEST")
         else:
             raise ValueError(f"Dataset: {dataset} is not supported")
 
@@ -276,7 +281,11 @@ class Preprocessor:
                     continue
 
                 # add aliases to correct answers
-                queries['en'] = {'text': nq_sample['question_text'], 'retrieval': [], 'translations': {}}
+                if 'question' in nq_sample:
+                    question = nq_sample['question']
+                else:
+                    question = nq_sample['question_text']
+                queries['en'] = {'text': question, 'retrieval': [], 'translations': {}}
 
                 sample: Sample = {
                     'mlqa'      : None,
