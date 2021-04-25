@@ -458,6 +458,7 @@ class Trainer:
             batch.src = batch.src[0]
             batch.src_mask = batch.src_mask[0]
             batch.doc_mask = batch.doc_mask[0] if hasattr(batch, "doc_mask") else None
+            batch.lang = batch.lang[0]
 
             total += len(batch)
             concatenated_encoder_output, concatenated_encoder_attention = model(input_ids=batch.src,
@@ -492,19 +493,17 @@ class Trainer:
             predicted_answers = [self.tokenizer.decode(ans, skip_special_tokens=True) for ans in
                                  tokenized_answers]
 
-            if 'mt5' not in self.config['reader_transformer_type']:
-                langs = [b.lang for b in batch]
-                predicted_answers_mul = [self.translator.from_en(answer, lang) for lang, answer in
-                                         zip(langs, predicted_answers)]
+            if 'mt5' not in self.config['reader_transformer_type'] and batch.lang != 'en':
+                predicted_answers_translated = self.translator.from_en(predicted_answers, [batch.lang])
 
             for i in range(len(batch)):
                 hit = metric_max_over_ground_truths(
                     metric_fn=exact_match_score, prediction=predicted_answers[i],
                     ground_truths=batch.answers[i])
                 hits += int(hit)
-                if 'mt5' not in self.config['reader_transformer_type']:
+                if 'mt5' not in self.config['reader_transformer_type'] and batch.lang != 'en':
                     translated_hit = metric_max_over_ground_truths(
-                        metric_fn=exact_match_score, prediction=predicted_answers_mul[i],
+                        metric_fn=exact_match_score, prediction=predicted_answers_translated[i],
                         ground_truths=batch.answers[i])
                     translated_hits[batch.lang[i]] += int(translated_hit)
                     translated_total[batch.lang[i]] += 1
