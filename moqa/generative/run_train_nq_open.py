@@ -24,21 +24,27 @@ preprocessed_data = {
 
 config = Config.config
 config_changes = {
-    'reader_tokenizer_type'         : 't5-small',
-    'reader_transformer_type'       : 't5-small',
-    'languages'                     : ['en'],
-    'log_results'                   : False,
-    'data'                          : preprocessed_data,
-    'multi_lingual_query'           : False,  # example has query in multiple languages not only in one,
-    'translated_query'              : False,
-    'use_dpr_golden'                : False,
-    'multi_lingual_answer_lang_code': False,
-    'translated_retrieval_search'   : False,
-    'english_ctxs_only'             : True,
-    'include_golden_passage'        : False,  # include golden query if substring matches
-    'only_gt_passages'              : False,  # use only passages containing answer string
-    'max_context_size'              : 17,  # max number of contexts
-    'examples_per_sample'           : 1,  # number of samples created from each sample
+    'reader_tokenizer_type'           : 't5-small',
+    'reader_transformer_type'         : 't5-small',
+    'languages'                       : ['en'],
+    'log_results'                     : False,
+    'data'                            : preprocessed_data,
+    'multi_lingual_query'             : False,  # example has query in multiple languages not only in one,
+    'translated_query'                : False,
+    'use_dpr_golden'                  : False,
+    'multi_lingual_answer_lang_code'  : False,
+    'translated_retrieval_search'     : False,
+    'english_ctxs_only'               : True,
+    'include_golden_passage'          : False,  # include golden query if substring matches
+    'only_gt_passages'                : False,  # use only passages containing answer string
+    'test_translated_retrieval_search': False,
+    'test_irrelevant_passage_langs'   : None,  # or list, e.g.: ['ar', 'en']
+    "test_translated_query"           : False,  # use translated questions
+    "test_include_golden_passage"     : False,
+    "test_use_dpr_golden"             : False,
+    "test_only_gt_passages"           : False,
+    'max_context_size'                : 17,  # max number of contexts
+    'examples_per_sample'             : 1,  # number of samples created from each sample
     }
 config.update(config_changes)
 
