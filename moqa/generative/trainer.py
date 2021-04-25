@@ -138,7 +138,9 @@ class Trainer:
         param_sizes, param_shapes = report_parameters(model)
         param_sizes = "\n'".join(str(param_sizes).split(", '"))
         param_shapes = "\n'".join(str(param_shapes).split(", '"))
-        logging.debug(f"Model structure:\n{param_sizes}\n{param_shapes}\n")
+        # logging.debug(f"Model structure:\n{param_sizes}\n{param_shapes}\n")
+        logging.debug(f"Model input embeddings:{model.get_input_embeddings()}")
+        logging.debug(f"Model output embeddings:{model.get_output_embeddings()}")
 
         # Init optimizer
         if not config["test_only"]:
@@ -522,10 +524,11 @@ class Trainer:
         EM = hits / total
         logging.info(f"S: {get_model(model).training_steps} Validation Loss: {sum(loss_list) / len(loss_list)}")
         logging.info(f"Validation EM: {EM}")
-        for lang, lang_hits in translated_hits.items():
-            lang_total = translated_total[lang]
-            EM = lang_hits / lang_total
-            logging.info(f"Validation EM {lang}: {EM} ({lang_total}/{lang_hits})")
+        if 'mt5' not in self.config['reader_transformer_type'] and batch.lang != 'en':
+            for lang, lang_hits in translated_hits.items():
+                lang_total = translated_total[lang]
+                EM = lang_hits / lang_total
+                logging.info(f"Validation EM {lang}: {EM} ({lang_total}/{lang_hits})")
 
         if self.config['log_results']:
             outf.close()
