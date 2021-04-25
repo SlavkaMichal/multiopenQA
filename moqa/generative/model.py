@@ -1,17 +1,14 @@
 import copy
 import logging
-import os
 from typing import Optional, Tuple
 import torch
 from torch import nn
 from torch.nn import CrossEntropyLoss
-from transformers import MT5Config as Config
-from transformers import MT5Tokenizer as Tokenizer
+from transformers import MT5Config as MT5Config
+from transformers import T5Config as T5Config
 from transformers.modeling_outputs import BaseModelOutputWithPastAndCrossAttentions, Seq2SeqLMOutput
 from transformers.models.t5.modeling_t5 import T5Stack, T5PreTrainedModel
 
-from moqa.common import utils
-import pdb
 from moqa.common import config as logging_cfg
 
 logging.basicConfig(
@@ -22,7 +19,7 @@ logging.basicConfig(
 
 class MT5QA(T5PreTrainedModel):
     model_type = "mt5"
-    config_class = Config
+    config_class = MT5Config
     _keys_to_ignore_on_load_missing = [
         r"encoder\.embed_tokens\.weight",
         r"decoder\.embed_tokens\.weight",
@@ -39,7 +36,7 @@ class MT5QA(T5PreTrainedModel):
                                     "attention_dropout": 0.1, },
         'fusion_strategy'        : 'allinputs', }
 
-    def __init__(self, config: Config):
+    def __init__(self, config: MT5Config):
         super().__init__(config)
         self.model_dim = config.d_model
 
@@ -77,7 +74,7 @@ class MT5QA(T5PreTrainedModel):
     def from_pretrained(cls, config, **kwargs):
         logging.info(f"Transformers cache: {config['cache_transformers']}")
         logging.info(f"Model type: {config['reader_transformer_type']}")
-        cfg = Config.from_pretrained(config['reader_transformer_type'], cache_dir=config['cache_transformers'],
+        cfg = MT5Config.from_pretrained(config['reader_transformer_type'], cache_dir=config['cache_transformers'],
                                         tie_word_embeddings=False)
         cfg.attention_probs_dropout_prob = ["attention_dropout"]  # optim
         cfg.hidden_dropout_prob = ["hidden_dropout"]  # optim
@@ -339,3 +336,70 @@ class MT5QA(T5PreTrainedModel):
 
             reordered_decoder_past = reordered_decoder_past + (reordered_layer_past_states,)
         return reordered_decoder_past
+
+
+class T5QA(MT5QA):
+    model_type = "t5"
+    config_class = T5Config
+    _keys_to_ignore_on_load_missing = [
+        r"encoder\.embed_tokens\.weight",
+        r"decoder\.embed_tokens\.weight",
+        r"lm_head\.weight",
+        ]
+    _keys_to_ignore_on_load_unexpected = [
+        r"decoder\.block\.0\.layer\.1\.EncDecAttention\.relative_attention_bias\.weight",
+        ]
+
+    sample_from_pretrained_config = {
+        'reader_transformer_type': 't5-small',
+        'cache_transformers'     : 'data/cache/Transformers',
+        'optim_cfg'              : {"hidden_dropout"   : 0.1,
+                                    "attention_dropout": 0.1, },
+        'fusion_strategy'        : 'allinputs', }
+
+    def __init__(self, config: MT5Config):
+        super().__init__(config)
+        self.model_dim = config.d_model
+
+        self.shared = nn.Embedding(config.vocab_size, config.d_model)
+
+        encoder_config = copy.deepcopy(config)
+        encoder_config.is_decoder = False
+        encoder_config.use_cache = False
+        encoder_config.is_encoder_decoder = False
+        self.encoder = T5Stack(encoder_config, self.shared)
+
+        decoder_config = copy.deepcopy(config)
+        decoder_config.is_decoder = True
+        decoder_config.is_encoder_decoder = False
+        decoder_config.num_layers = config.num_decoder_layers
+        self.decoder = T5Stack(decoder_config, self.shared)
+
+        self.lm_head = nn.Linear(config.d_model, config.vocab_size, bias=False)
+
+        self.training_steps = 0
+        self.init_weights()
+
+        # Model parallel
+        self.model_parallel = False
+        self.device_map = None
+
+        self.sample_from_pretrained_config = {
+            'reader_transformer_type': 't5-small',
+            'cache_transformers'     : 'data/cache/Transformers',
+            "hidden_dropout"         : 0.1,
+            "attention_dropout"      : 0.1,
+            'fusion_strategy'        : 'allinputs', }
+
+    @classmethod
+    def from_pretrained(cls, config, **kwargs):
+        logging.info(f"Transformers cache: {config['cache_transformers']}")
+        logging.info(f"Model type: {config['reader_transformer_type']}")
+        cfg = T5Config.from_pretrained(config['reader_transformer_type'], cache_dir=config['cache_transformers'],
+                                       tie_word_embeddings=True)
+        cfg.attention_probs_dropout_prob = ["attention_dropout"]  # optim
+        cfg.hidden_dropout_prob = ["hidden_dropout"]  # optim
+        cfg.fusion_strategy = config["fusion_strategy"]  # config
+        cfg.custom_config = config['fusion_strategy']
+        return super(MT5QA, cls).from_pretrained(
+            config['reader_transformer_type'], config=cfg, cache_dir=config['cache_transformers'], **kwargs)

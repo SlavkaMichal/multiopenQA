@@ -21,7 +21,7 @@ from moqa.datasets.mt5datasets import MT5Dataset
 from moqa.common.model_utils import count_parameters, sum_parameters, report_parameters
 from moqa.common.utils import timestamp
 from moqa.common.eval_utils import metric_max_over_ground_truths, exact_match_score
-from moqa.generative.model import MT5QA
+from moqa.generative.model import MT5QA, T5QA
 from moqa.db import PassageDB
 from moqa.translate import Translator
 from moqa.common import config as logging_cfg
@@ -92,9 +92,12 @@ class Trainer:
         else:
             logging.info(f"Loading model from {config['pretrained_model']}")
 
-        model = torch.load(config["pretrained_model"], map_location=self.device) \
-            if config["pretrained_model"] is not None \
-            else MT5QA.from_pretrained(config).to(self.device)
+        if config['pretrained_model'] is not None:
+            model = torch.load(config["pretrained_model"], map_location=self.device)
+        elif 'mt5' in config['reader_transformer_type']:
+            model = MT5QA.from_pretrained(config).to(self.device)
+        else:
+            model = T5QA.from_pretrained(config).to(self.device)
 
         logging.info(f"Training data examples:{len(train)}")
         if val is not None:

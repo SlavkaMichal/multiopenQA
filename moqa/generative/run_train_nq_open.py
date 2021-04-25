@@ -46,6 +46,7 @@ config_changes = {
     'max_context_size'                : 17,  # max number of contexts
     'examples_per_sample'             : 1,  # number of samples created from each sample
     }
+
 config.update(config_changes)
 
 if __name__ == "__main__":
