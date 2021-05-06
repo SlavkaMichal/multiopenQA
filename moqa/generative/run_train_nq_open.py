@@ -10,7 +10,6 @@ from moqa.generative import Trainer
 # from moqa.generative.config_types import TrainConfig, OptimConfig, SchedulerConfig
 import os
 
-os.environ['log_file_suffix'] = __file__.replace('.py', '')
 from moqa.common import config as logging_cfg
 from moqa.generative.config import Config
 
@@ -31,6 +30,7 @@ config_changes = {
     'reader_tokenizer_type'           : 't5-small',
     'reader_transformer_type'         : 't5-small',
     'languages'                       : ['en'],
+    'test_only'                       : True,
     'pretrained_model'                : checkpoint,
     'load_optimizer_state_dict'       : True,
     'max_steps'                       : 15_000,

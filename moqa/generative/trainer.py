@@ -100,13 +100,14 @@ class Trainer:
         else:
             model = T5QA.from_pretrained(config).to(self.device)
 
-        logging.info(f"Training data examples:{len(train)}")
+        if train is not None:
+            logging.info(f"Training data examples:{len(train)}")
         if val is not None:
             logging.info(f"Validation data examples:{len(val)}")
         if test is not None:
             logging.info(f"Test data examples {len(test)}")
 
-        if not confirm("Data are prepared. Do you wish to start training?", default=True):
+        if config['interactive'] and not confirm("Data are prepared. Do you wish to start training?", default=True):
             raise KeyboardInterrupt
 
         if not config["test_only"]:
@@ -503,11 +504,11 @@ class Trainer:
                     translated_hit = metric_max_over_ground_truths(
                         metric_fn=exact_match_score, prediction=predicted_answers_translated[i],
                         ground_truths=batch.answers[i])
-                    lang_stats[batch.lang[i]].hits += int(translated_hit)
-                    lang_stats[batch.lang[i]].total += 1
+                    lang_stats[batch.lang].hits += int(translated_hit)
+                    lang_stats[batch.lang].total += 1
                 else:
-                    lang_stats[batch.lang[i]].hits += int(hit)
-                    lang_stats[batch.lang[i]].total += 1
+                    lang_stats[batch.lang].hits += int(hit)
+                    lang_stats[batch.lang].total += 1
 
                 if self.config['log_results']:
                     csvw.writerow([
@@ -561,9 +562,6 @@ class Trainer:
 
         if config['cached_data'] is None:
             logging.info("Loading from cache")
-            if config['data_size'] <= 0 and config['test_only']:
-                # if test only and limit for data size was not set reduce the amount of data
-                config["data_size"] = 10_000
 
             if not confirm("WARNING: Not sure if this work, you probably should look at it.", default=False):
                 raise KeyboardInterrupt
