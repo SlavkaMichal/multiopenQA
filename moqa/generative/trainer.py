@@ -1,4 +1,5 @@
 import copy
+from argparse import Namespace
 import json
 import os
 import socket
@@ -105,7 +106,7 @@ class Trainer:
         if test is not None:
             logging.info(f"Test data examples {len(test)}")
 
-        if config['interactive'] and not confirm("Data are prepared. Do you wish to start training?", default=True):
+        if not confirm("Data are prepared. Do you wish to start training?", default=True):
             raise KeyboardInterrupt
 
         if not config["test_only"]:
@@ -441,12 +442,7 @@ class Trainer:
         total = 0
         hits = 0
 
-        translated_hits = {}
-        translated_total = {}
-        if 'mt5' not in self.config['reader_transformer_type']:
-            for lang in self.config['languages']:
-                translated_hits[lang] = 0
-                translated_total[lang] = 0
+        lang_stats = dict.fromkeys(self.config['languages'], Namespace(hits=0, total=0))
 
         loss_list = []
         if self.config['log_results']:
@@ -485,12 +481,12 @@ class Trainer:
 
             # hacky, provide just some tensor as input ids, such that it matches batch dimension 1,
             # do not provide input ids, as they should not be needed (and have pre-concatenation batch dim)
-            tokenized_answers = get_model(model).generate(input_ids=concatenated_encoder_attention,
-                                                          # num_beams=5,
-                                                          # num_return_sequences=5,
-                                                          attention_mask=concatenated_encoder_attention,
-                                                          encoder_outputs=concatenated_encoder_output,
-                                                          decoder_start_token_id=batch.target[0][0])
+            tokenized_answers = model.generate(input_ids=concatenated_encoder_attention,
+                                               # num_beams=5,
+                                               # num_return_sequences=5,
+                                               attention_mask=concatenated_encoder_attention,
+                                               encoder_outputs=concatenated_encoder_output,
+                                               decoder_start_token_id=batch.target[0][0])
 
             predicted_answers = [self.tokenizer.decode(ans, skip_special_tokens=True) for ans in
                                  tokenized_answers]
@@ -507,8 +503,11 @@ class Trainer:
                     translated_hit = metric_max_over_ground_truths(
                         metric_fn=exact_match_score, prediction=predicted_answers_translated[i],
                         ground_truths=batch.answers[i])
-                    translated_hits[batch.lang[i]] += int(translated_hit)
-                    translated_total[batch.lang[i]] += 1
+                    lang_stats[batch.lang[i]].hits += int(translated_hit)
+                    lang_stats[batch.lang[i]].total += 1
+                else:
+                    lang_stats[batch.lang[i]].hits += int(hit)
+                    lang_stats[batch.lang[i]].total += 1
 
                 if self.config['log_results']:
                     csvw.writerow([
@@ -524,11 +523,9 @@ class Trainer:
         EM = hits / total
         logging.info(f"S: {get_model(model).training_steps} Validation Loss: {sum(loss_list) / len(loss_list)}")
         logging.info(f"Validation EM: {EM}")
-        if 'mt5' not in self.config['reader_transformer_type'] and batch.lang != 'en':
-            for lang, lang_hits in translated_hits.items():
-                lang_total = translated_total[lang]
-                EM = lang_hits / lang_total
-                logging.info(f"Validation EM {lang}: {EM} ({lang_total}/{lang_hits})")
+        for lang, stats in lang_stats.items():
+            EM = stats.hits / stats.total
+            logging.info(f"Validation EM {lang}({stats.total / total}%): {EM} ({stats.hits}/{stats.total})")
 
         if self.config['log_results']:
             outf.close()

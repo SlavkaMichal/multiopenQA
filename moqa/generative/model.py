@@ -384,13 +384,6 @@ class T5QA(MT5QA):
         self.model_parallel = False
         self.device_map = None
 
-        self.sample_from_pretrained_config = {
-            'reader_transformer_type': 't5-small',
-            'cache_transformers'     : 'data/cache/Transformers',
-            "hidden_dropout"         : 0.1,
-            "attention_dropout"      : 0.1,
-            'fusion_strategy'        : 'allinputs', }
-
     @classmethod
     def from_pretrained(cls, config, **kwargs):
         logging.info(f"Transformers cache: {config['cache_transformers']}")

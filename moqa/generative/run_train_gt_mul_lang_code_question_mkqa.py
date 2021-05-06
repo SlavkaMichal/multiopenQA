@@ -9,6 +9,9 @@ import ipdb
 
 from moqa.generative import Trainer
 # from moqa.generative.config_types import TrainConfig, OptimConfig, SchedulerConfig
+import os
+
+os.environ['log_file_suffix'] = __file__.replace('.py', '')
 from moqa.common import config as logging_cfg
 
 logging.basicConfig(

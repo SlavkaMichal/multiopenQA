@@ -8,6 +8,9 @@ import ipdb
 
 from moqa.generative import Trainer
 # from moqa.generative.config_types import TrainConfig, OptimConfig, SchedulerConfig
+import os
+
+os.environ['log_file_suffix'] = __file__.replace('.py', '')
 from moqa.common import config as logging_cfg
 from moqa.generative.config import Config
 
@@ -22,11 +25,15 @@ preprocessed_data = {
     'test' : Config.DATA_PATH + 'data/preprocessed/nq-open_TEST_topk20_en.jsonl',
     }
 
+checkpoint = Config.DATA_PATH + 'experiments/nq_open/generative_reader_EM0.2749_S9896_Mt5-small_21-04-26_15:40:54_pcknot3'
 config = Config.config
 config_changes = {
     'reader_tokenizer_type'           : 't5-small',
     'reader_transformer_type'         : 't5-small',
     'languages'                       : ['en'],
+    'pretrained_model'                : checkpoint,
+    'load_optimizer_state_dict'       : True,
+    'max_steps'                       : 15_000,
     'log_results'                     : False,
     'data'                            : preprocessed_data,
     'multi_lingual_query'             : False,  # example has query in multiple languages not only in one,
