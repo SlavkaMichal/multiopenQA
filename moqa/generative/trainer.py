@@ -146,9 +146,9 @@ class Trainer:
 
         # Init optimizer
         if not config["test_only"]:
-            if test is not None:
-                logging.info("Validating before start")
-                self.validate(model, test_iter)
+            # if test is not None:
+            #     logging.info("Validating before start")
+            #     self.validate(model, test_iter)
             no_decay = ["bias", "LayerNorm.weight"]
             optimizer_grouped_parameters = [
                 {
@@ -170,10 +170,10 @@ class Trainer:
                                   lr=self.config["learning_rate"],
                                   eps=self.config["adam_eps"])
 
-            if config['pretrained_model'] is not None and config['load_optimizer_state_dict']:
-                state_dict = getattr(model, 'optimizer_state_dict', None)
-                if state_dict is not None:
-                    optimizer.load_state_dict(model.optimizer_state_dict)
+            if config['pretrained_model'] is not None and \
+                    config['load_optimizer_state_dict'] and \
+                    model.optimizer_state_dict is not None:
+                optimizer.load_state_dict(model.optimizer_state_dict)
                 del model.optimizer_state_dict
             if hasattr(model, 'optimizer_state_dict'):
                 # if optimizer is not being loaded still delete optimizer state dict
