@@ -474,10 +474,10 @@ class MT5Dataset(torchtext.data.Dataset):
         # only_gt_passages  - at least one golden passage is guaranteed
         # translated_retrieval_search - use machine translated questions for retrieval
         # include_golden_passage - use golden passage if available
-        top_k_titles_raw = dict.fromkeys(passage_langs, [])
-        top_k_titles_tokens = dict.fromkeys(passage_langs, [])
-        top_k_passages_raw = dict.fromkeys(passage_langs, [])
-        top_k_passages_tokens = dict.fromkeys(passage_langs, [])
+        top_k_titles_raw = {lang: [] for lang in passage_langs}
+        top_k_titles_tokens = {lang: [] for lang in passage_langs}
+        top_k_passages_raw = {lang: [] for lang in passage_langs}
+        top_k_passages_tokens = {lang: [] for lang in passage_langs}
         selected_ids = []
 
         if gold_passages is not None:
@@ -622,7 +622,7 @@ class MT5Dataset(torchtext.data.Dataset):
                 answer_lang_code = self.lang_code[answer_lang]
 
                 # prepend passage and answer in answer language
-                if not self.multi_lingual_answer_lang_code:
+                if not self.multi_lingual_answer_lang_code:  # TODO i think model was not trained like this
                     # question is in the same language as passage
                     # answer language is indicated by the first question
                     question = sample['queries'][answer_lang]['text']
@@ -703,7 +703,7 @@ class MT5Dataset(torchtext.data.Dataset):
                 "id"       : sample["example_id"],
                 "question" : question,
                 "lang"     : answer_lang,
-                "answers"  : answers_raw,
+                "answers"  : list(set(answers_raw)),
                 "sources"  : input_sequences,
                 "doc_masks": document_masks,
                 "target"   : target_sequences,

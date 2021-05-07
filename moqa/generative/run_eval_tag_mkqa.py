@@ -19,7 +19,7 @@ preprocessed_data = {
     'test': Config.DATA_PATH + 'data/preprocessed/mkqa_TEST_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
     }
 
-pretrained_model = 'experiments/ml_mono_query/generative_reader_EM0.2121_S3744_Mgoogle_mt5-small_21-04-18_09:40:53_pcknot2'
+pretrained_model = 'experiments/ml_query_lang_code/generative_reader_EM0.2311_S4680_Mgoogle_mt5-small_21-04-19_01:48:50_pcknot4'
 
 config = Config.config
 config_changes = {
@@ -30,10 +30,11 @@ config_changes = {
     'log_results'                     : True,
     'data'                            : preprocessed_data,
     'examples_per_sample'             : len(Config.languages),  # number of samples created from each sample
-    "multi_lingual_query"             : False,
+    "multi_lingual_query"             : True,
+    'multi_lingual_answer_lang_code'  : True,
     'pretrained_model'                : Config.DATA_PATH + pretrained_model,
     "english_ctxs_only"               : False,
-    'test_irrelevant_passage_langs'   : ['en'],  # or list, e.g.: ['ar', 'en']
+    'test_irrelevant_passage_langs'   : None,  # or list, e.g.: ['ar', 'en']
     "test_include_golden_passage"     : False,
     "test_use_dpr_golden"             : False,
     "test_only_gt_passages"           : False,

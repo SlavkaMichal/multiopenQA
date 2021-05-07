@@ -171,7 +171,9 @@ class Trainer:
                                   eps=self.config["adam_eps"])
 
             if config['pretrained_model'] is not None and config['load_optimizer_state_dict']:
-                optimizer.load_state_dict(model.optimizer_state_dict)
+                state_dict = getattr(model, 'optimizer_state_dict', None)
+                if state_dict is not None:
+                    optimizer.load_state_dict(model.optimizer_state_dict)
                 del model.optimizer_state_dict
             if hasattr(model, 'optimizer_state_dict'):
                 # if optimizer is not being loaded still delete optimizer state dict
@@ -443,7 +445,7 @@ class Trainer:
         total = 0
         hits = 0
 
-        lang_stats = dict.fromkeys(self.config['languages'], Namespace(hits=0, total=0))
+        lang_stats = {lang: Namespace(hits=0, total=0) for lang in self.config['languages']}
 
         loss_list = []
         if self.config['log_results']:

@@ -7,10 +7,6 @@ import torch
 import ipdb
 
 from moqa.generative import Trainer
-# from moqa.generative.config_types import TrainConfig, OptimConfig, SchedulerConfig
-import os
-
-os.environ['log_file_suffix'] = __file__.replace('.py', '')
 from moqa.common import config as logging_cfg
 from moqa.generative.config import Config
 
@@ -20,23 +16,27 @@ logging.basicConfig(
     level=logging_cfg.log_level)
 
 preprocessed_data = {
-    'train': Config.DATA_PATH + 'data/preprocessed/mkqa_TRAIN_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
-    'val'  : Config.DATA_PATH + 'data/preprocessed/mkqa_DEV_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
-    'test' : Config.DATA_PATH + 'data/preprocessed/mkqa_TEST_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
+    'test': Config.DATA_PATH + 'data/preprocessed/mkqa_TEST_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
     }
+
+pretrained_model = 'experiments/ml_mono_query/generative_reader_EM0.2121_S3744_Mgoogle_mt5-small_21-04-18_09:40:53_pcknot2'
 
 config = Config.config
 config_changes = {
-    'log_results'                   : False,
-    'data'                          : preprocessed_data,
-    'multi_lingual_query'           : True,  # example has query in multiple languages not only in one,
-    'translated_query'              : False,
-    'use_dpr_golden'                : True,
-    'multi_lingual_answer_lang_code': True,
-    'translated_retrieval_search'   : False,
-    'english_ctxs_only'             : True,
-    'include_golden_passage'        : True,  # include golden query if substring matches
-    'only_gt_passages'              : False,  # use only passages containing answer string
+    "test_translated_query"           : False,  # use translated questions
+    'test_translated_retrieval_search': False,
+
+    'test_only'                       : True,
+    'log_results'                     : True,
+    'data'                            : preprocessed_data,
+    'examples_per_sample'             : len(Config.languages),  # number of samples created from each sample
+    "multi_lingual_query"             : False,
+    'pretrained_model'                : Config.DATA_PATH + pretrained_model,
+    "english_ctxs_only"               : False,
+    'test_irrelevant_passage_langs'   : None,  # or list, e.g.: ['ar', 'en']
+    "test_include_golden_passage"     : False,
+    "test_use_dpr_golden"             : False,
+    "test_only_gt_passages"           : False,
     }
 config.update(config_changes)
 
