@@ -1,3 +1,4 @@
+# this is updated run_train_gt_mul_lang_code_question_mkqa.py
 import logging
 import numpy as np
 import traceback
@@ -26,15 +27,19 @@ preprocessed_data = {
     }
 
 config = Config.config
-config['log_results'] = True
-config['include_golden_passage'] = True
-config['save_em_threshold'] = 0.15
-config['reader_tokenizer_type'] = 't5-small'
-config['reader_transformer_type'] = 't5-small'
-config['data'] = preprocessed_data
-config['multi_lingual_query'] = False  # example has query in multiple languages not only in one
-config['translated_query'] = False
-config['use_dpr_golden'] = True
+config_changes = {
+    'log_results'                   : False,
+    'data'                          : preprocessed_data,
+    'multi_lingual_query'           : True,  # example has query in multiple languages not only in one,
+    'translated_query'              : False,
+    'use_dpr_golden'                : False,
+    'multi_lingual_answer_lang_code': True,
+    'translated_retrieval_search'   : False,
+    'english_ctxs_only'             : False,
+    'include_golden_passage'        : False,  # include golden query if substring matches
+    'only_gt_passages'              : False,  # use only passages containing answer string
+    }
+config.update(config_changes)
 
 if __name__ == "__main__":
     # os.mkdir(config["save_dir"])
