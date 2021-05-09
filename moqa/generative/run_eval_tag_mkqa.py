@@ -19,12 +19,12 @@ preprocessed_data = {
     'test': Config.DATA_PATH + 'data/preprocessed/mkqa_TEST_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
     }
 
-pretrained_model = 'experiments/ml_query_lang_code/generative_reader_EM0.2311_S4680_Mgoogle_mt5-small_21-04-19_01:48:50_pcknot4'
+pretrained_model = 'experiments/ml_query_lang_code/generative_reader_EM0.2500_S4212_Mgoogle_mt5-small_21-05-08_11:10:30_pcknot4'
 
 config = Config.config
 config_changes = {
-    "test_translated_query"           : False,  # use translated questions
-    'test_translated_retrieval_search': False,
+    "test_translated_query"           : True,  # use translated questions
+    'test_translated_retrieval_search': True,
 
     'test_only'                       : True,
     'log_results'                     : True,

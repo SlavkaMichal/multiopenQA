@@ -26,8 +26,8 @@ pretrained_model = 'experiments/exp1/generative_reader_EM0.1921_S3752_Mgoogle_mt
 
 config = Config.config
 config_changes = {
-    "test_translated_query"           : False,  # use translated questions
-    'test_translated_retrieval_search': False,
+    "test_translated_query"           : True,  # use translated questions
+    'test_translated_retrieval_search': True,
 
     'test_only'                       : True,
     'log_results'                     : True,
