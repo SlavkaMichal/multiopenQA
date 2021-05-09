@@ -504,7 +504,7 @@ class Trainer:
                 hits += int(hit)
                 if 'mt5' not in self.config['reader_transformer_type'] and batch.lang != 'en':
                     translated_hit = metric_max_over_ground_truths(
-                        metric_fn=exact_match_score, prediction=predicted_answers_translated[i],
+                        metric_fn=exact_match_score, prediction=predicted_answers_translated[batch.lang],
                         ground_truths=batch.answers[i])
                     lang_stats[batch.lang].hits += int(translated_hit)
                     lang_stats[batch.lang].total += 1
@@ -527,8 +527,8 @@ class Trainer:
         logging.info(f"S: {get_model(model).training_steps} Validation Loss: {sum(loss_list) / len(loss_list)}")
         logging.info(f"Validation EM: {EM}")
         for lang, stats in lang_stats.items():
-            EM = stats.hits / stats.total
-            logging.info(f"Validation EM {lang}({stats.total / total}%): {EM} ({stats.hits}/{stats.total})")
+            EM_lang = stats.hits / stats.total
+            logging.info(f"Validation EM {lang}({stats.total / total}%): {EM_lang} ({stats.hits}/{stats.total})")
 
         if self.config['log_results']:
             outf.close()
