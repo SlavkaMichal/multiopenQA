@@ -229,16 +229,31 @@ class MT5Dataset(torchtext.data.Dataset):
     def torchtext_example(e, fields, include_passage_masks, choose_random_target=False):
         target = e["target"] if not choose_random_target else random.choice(e["target"])
         # sources = [ s[:300-1] + [self.tokenizer.eos_token_id] for s in sample(e["sources"], 30) ]
-        _preprocessed_example = [
-            e["id"],
-            e["question"],
-            e["answers"],
-            e["lang"],
-            e['sources'],
-            [[1] * len(x) for x in e['sources']],
-            e.get("doc_masks", None),
-            target[0],
-            [1] * len(target[0])]
+
+        if 'answers_mul' in e:
+            _preprocessed_example = [
+                e["id"],
+                e["question"],
+                e["answers"],
+                e['answers_mul'],
+                e["lang"],
+                e['sources'],
+                [[1] * len(x) for x in e['sources']],
+                e.get("doc_masks", None),
+                target[0],
+                [1] * len(target[0])]
+        else:
+            _preprocessed_example = [
+                e["id"],
+                e["question"],
+                e["answers"],
+                e["lang"],
+                e['sources'],
+                [[1] * len(x) for x in e['sources']],
+                e.get("doc_masks", None),
+                target[0],
+                [1] * len(target[0])]
+
         if not include_passage_masks:
             del _preprocessed_example[-3]
         example = torchtext.data.Example.fromlist(_preprocessed_example, fields)
@@ -311,8 +326,7 @@ class MT5Dataset(torchtext.data.Dataset):
 
         return examples
 
-    @staticmethod
-    def prepare_fields(pad_t) -> Dict[str, torchtext.data.Field]:
+    def prepare_fields(self, pad_t) -> Dict[str, torchtext.data.Field]:
         WORD_field = torchtext.data.Field(use_vocab=False, batch_first=True, sequential=True, pad_token=pad_t)
         WORD_nested_field = torchtext.data.NestedField(WORD_field)
         PAD_field = torchtext.data.Field(use_vocab=False, batch_first=True, sequential=True, pad_token=0)
@@ -326,6 +340,7 @@ class MT5Dataset(torchtext.data.Dataset):
             'id'         : torchtext.data.RawField(),
             'question'   : torchtext.data.RawField(),
             'answers'    : torchtext.data.RawField(),
+            'answers_mul': torchtext.data.RawField(),
             'lang'       : torchtext.data.RawField(),
             'src'        : WORD_nested_field,
             'src_mask'   : PAD_nested_field,
@@ -333,6 +348,10 @@ class MT5Dataset(torchtext.data.Dataset):
             'target'     : TGT_WORD_field,
             'target_mask': TGT_PAD_field,
             }
+
+        if 'mt5' in self.model_name:
+            del fields['answers_mul']
+
         return fields
 
     def assemble_target_sequences(self, answers: List, tokenizer: PreTrainedTokenizer):
@@ -691,25 +710,32 @@ class MT5Dataset(torchtext.data.Dataset):
                                                               tokenizer=self.tokenizer) if self.is_training else [
                 self.tokenizer.pad_token_id]
             answers_raw = sample['answers'][answer_lang]
+            question = sample['queries'][answer_lang]['text']
             if 'mt5' not in self.model_name and answer_lang != 'en':
-                answers_raw += sample['answers']['en']
+                answers_raw = sample['answers']['en']
+                question = sample['queries']['en']['text']
             if type(answers_raw[0]) == list:
                 answers_raw = answers_raw[0]
             # useful for debugging
             # rev_input = " ".join(tokenizer.convert_ids_to_tokens(inputSequence))
             # rev_target = " ".join(tokenizer.convert_ids_to_tokens(targetSequence))
-            question = sample['queries'][answer_lang]['text']
             example = {
-                "id"       : sample["example_id"],
-                "question" : question,
-                "lang"     : answer_lang,
-                "answers"  : list(set(answers_raw)),
-                "sources"  : input_sequences,
-                "doc_masks": document_masks,
-                "target"   : target_sequences,
+                "id"         : sample["example_id"],
+                "question"   : question,
+                "lang"       : answer_lang,
+                "answers"    : list(set(answers_raw)),
+                'answers_mul': sample['answers'],
+                "sources"    : input_sequences,
+                "doc_masks"  : document_masks,
+                "target"     : target_sequences,
                 }
             if not self.include_doc_masks:
                 del example["doc_masks"]
+            if 'mt5' not in self.model_name:
+                return [example]
+            else:
+                del example['answers_mul']
+
             examples.append(example)
 
         self.previous_sample = sample

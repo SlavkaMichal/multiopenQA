@@ -159,11 +159,14 @@ class Translator:
 
     def from_en(self, text_en, dst_langs: List[str]):
         inp_text = []
+        dst_langs = dst_langs.copy()
+        if 'en' in dst_langs:
+            dst_langs.remove('en')
         for lang in dst_langs:
             inp_text.append(f">>{self.keys2opus[lang]}<< {text_en}")
 
         text_mul = self.translate('en-mul', inp_text)
-        translations = {}
+        translations = {'en': text_en}
         for lang, translation in zip(dst_langs, text_mul):
             translations[lang] = translation
 
