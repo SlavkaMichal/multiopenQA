@@ -27,12 +27,12 @@ preprocessed_data = {
 checkpoint = Config.DATA_PATH + 'experiments/nq_open/generative_reader_EM0.2749_S9896_Mt5-small_21-04-26_15:40:54_pcknot3'
 config = Config.config
 config_changes = {
-    'reader_tokenizer_type'           : 't5-small',
-    'reader_transformer_type'         : 't5-small',
+    'reader_tokenizer_type'           : 't5-base',
+    'reader_transformer_type'         : 't5-base',
     'languages'                       : ['en'],
     'test_only'                       : False,
-    'pretrained_model'                : checkpoint,
-    'load_optimizer_state_dict'       : True,
+    'pretrained_model'                : None,
+    'load_optimizer_state_dict'       : False,
     'max_steps'                       : 15_000,
     'log_results'                     : False,
     'data'                            : preprocessed_data,

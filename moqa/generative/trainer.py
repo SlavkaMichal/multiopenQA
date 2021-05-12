@@ -460,7 +460,7 @@ class Trainer:
             batch.src_mask = batch.src_mask[0]
             batch.doc_mask = batch.doc_mask[0] if hasattr(batch, "doc_mask") else None
             batch.lang = batch.lang[0]
-            batch.answers_mul = batch.answers_mul[0]
+
 
             total += len(batch)
             concatenated_encoder_output, concatenated_encoder_attention = model(input_ids=batch.src,
@@ -502,6 +502,7 @@ class Trainer:
                     ground_truths=batch.answers[i])
                 hits += int(hit)
                 if 'mt5' not in self.config['reader_transformer_type']:
+                    batch.answers_mul = batch.answers_mul[0]
                     predicted_answers_translated = self.translator.from_en(predicted_answers[i],
                                                                            self.config['languages'])
                     for lang in self.config['languages']:
