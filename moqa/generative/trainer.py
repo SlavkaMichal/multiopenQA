@@ -501,7 +501,8 @@ class Trainer:
                     metric_fn=exact_match_score, prediction=predicted_answers[i],
                     ground_truths=batch.answers[i])
                 hits += int(hit)
-                if 'mt5' not in self.config['reader_transformer_type']:
+                if 'mt5' not in self.config['reader_transformer_type'] and self.config['test_only']:
+                    batch.answers_mul = batch.answers_mul[0]
                     batch.answers_mul = batch.answers_mul[0]
                     predicted_answers_translated = self.translator.from_en(predicted_answers[i],
                                                                            self.config['languages'])
