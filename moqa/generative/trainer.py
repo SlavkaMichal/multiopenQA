@@ -502,16 +502,16 @@ class Trainer:
                     ground_truths=batch.answers[i])
                 hits += int(hit)
                 if 'mt5' not in self.config['reader_transformer_type'] and self.config['test_only']:
-                    batch.answers_mul = batch.answers_mul[0]
-                    batch.answers_mul = batch.answers_mul[0]
-                    predicted_answers_translated = self.translator.from_en(predicted_answers[i],
-                                                                           self.config['languages'])
-                    for lang in self.config['languages']:
-                        translated_hit = metric_max_over_ground_truths(
-                            metric_fn=exact_match_score, prediction=predicted_answers_translated[lang],
-                            ground_truths=batch.answers_mul[lang])
-                        lang_stats[lang].hits += int(translated_hit)
-                        lang_stats[lang].total += 1
+                    if batch.lang != 'en':
+                        predicted_answers_translated = self.translator.from_en(predicted_answers[i],
+                                                                               [batch.lang])
+                    else:
+                        predicted_answers_translated = {'en': predicted_answers[i]}
+                    translated_hit = metric_max_over_ground_truths(
+                        metric_fn=exact_match_score, prediction=predicted_answers_translated[batch.lang],
+                        ground_truths=batch.answers[i])
+                    lang_stats[batch.lang].hits += int(translated_hit)
+                    lang_stats[batch.lang].total += 1
                 else:
                     lang_stats[batch.lang].hits += int(hit)
                     lang_stats[batch.lang].total += 1
