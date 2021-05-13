@@ -29,6 +29,8 @@ config_changes = {
     "test_translated_query"           : True,  # use translated questions
     'test_translated_retrieval_search': True,
 
+    'random_thingy'                   : 'hello there',
+
     'test_only'                       : True,
     'log_results'                     : True,
     'data'                            : preprocessed_data,

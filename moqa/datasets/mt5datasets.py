@@ -689,7 +689,8 @@ class MT5Dataset(torchtext.data.Dataset):
                 # translate question to English if model is not multilingual
                 if 'mt5' not in self.model_name and answer_lang != 'en':
                     if self.translated_query:
-                        question = self.translator.translate('mul-en', [question])[0]
+                        question = sample['queries'][answer_lang]['translations']['en']['text']
+                        # self.translator.translate('mul-en', [question])[0]
                     else:
                         question = sample['queries']['en']['text']
                 question_tokens = self.tokenizer.encode(question, add_special_tokens=False)
@@ -731,8 +732,6 @@ class MT5Dataset(torchtext.data.Dataset):
                 }
             if not self.include_doc_masks:
                 del example["doc_masks"]
-            if 'mt5' not in self.model_name:
-                return [example]
             else:
                 del example['answers_mul']
 
