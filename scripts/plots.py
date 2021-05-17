@@ -50,12 +50,12 @@ def plot_ht(langs):
     cm = 1 / 2.54
     page_width = 15.2 * cm
     fig, ax = plt.subplots(figsize=(page_width, 8 * cm))
-    ax.axhline(ml[0], linestyle='dashed', label='multilingual', color='r')
-    ax.axhline(ys['en'][16], linestyle='dashed', label='en top17', color=colorst[0])
+    ax.axhline(ml[0], linestyle='dashed', label='ml', color='r')
+    ax.axhline(ys['en'][16], linestyle='dashed', label='en', color=colorst[0])
     for c, i in zip(colorst, sorted(ys.items(), key=lambda x: x[1][16], reverse=True)):
         clv.append((c, i[0], i[1]))
         ax.plot(x, i[1], label=i[0], color=c)
-        ax.scatter([17], i[1][16], color=c)
+        ax.scatter([17], i[1][16], marker='x', color=c)
         # if i[0] != 'en':
         #    ax.axhline(i[1][16],c='gray', linewidth=0.5)
     ax.legend(bbox_to_anchor=(1., 1.), loc='upper left')
@@ -67,7 +67,7 @@ def plot_ht(langs):
     for x in [5, 10, 15]:
         ax.axvline(x, c='gray', linewidth=0.5)
 
-    ax.set_ylabel('Accuracy')
+    ax.set_ylabel('Retrieval Accuracy')
     ax.set_xlabel('top k')
     fig.set_size_inches((page_width, 15 * cm))
 
@@ -77,7 +77,7 @@ def plot_ht(langs):
     for lang in langs:
         data = np.loadtxt(f'hitAtK_mt_{lang}.csv', delimiter=',')
         data_mt['HT'] = ml[0]
-        data_mt[f'MT {lang}'] = np.unique(data.min(axis=1), return_counts=True)[1][0] / data.shape[0]
+        data_mt[f'{lang}'] = np.unique(data.min(axis=1), return_counts=True)[1][0] / data.shape[0]
 
     x = np.arange(len(data_mt))
     fig, ax = plt.subplots(figsize=(page_width, 8 * cm))
@@ -87,7 +87,7 @@ def plot_ht(langs):
     ax.set_xticklabels(data_sorted.keys())
     # ax.bar_label(rects, padding=3)
     fig.tight_layout()
-    ax.set_ylabel('Accuracy')
+    ax.set_ylabel('Retrieval Accuracy')
 
 
 def plot_correlation():
@@ -138,18 +138,19 @@ def plot_correlation():
         ax.scatter(i[1][0], i[1][2], marker=i[1][1], color=c, label=i[0])
         # if i[0] != 'en':
         #    ax.axhline(i[1][16],c='gray', linewidth=0.5)
-    ax.legend(loc=4)
+    # ax.legend(loc=4)
+    ax.legend(bbox_to_anchor=(1., 1.), loc='upper left')
 
-    ax.set_xticks(x)
+    # ax.set_xticks(x)
     ax.set_yticks(np.linspace(0.05, 0.6, 12))
 
     for y in np.linspace(0.1, 0.6, 6):
         ax.axhline(y, c='gray', linewidth=0.5)
-    for x in [5, 10, 15]:
+    for x in np.array([1, 2, 3, 4, 5, 6]) * 1e6:
         ax.axvline(x, c='gray', linewidth=0.5)
 
-    ax.set_ylabel('Accuracy')
-    ax.set_xlabel('top k')
+    ax.set_ylabel('Retrieval Accuracy')
+    ax.set_xlabel('Number of Wikipedia articles')
     fig.set_size_inches((page_width, 15 * cm))
 
 
@@ -196,3 +197,23 @@ def wiki_size():
     ax.bar_label(rects1, padding=3)
     ax.bar_label(rects2, padding=3)
     fig.tight_layout()
+
+
+def plot_all():
+    data = np.array([[0.14993016, 0.2154276, 0.19230172, 0.18221325, 0.09622846],
+                     [0.14046252, 0.14899891, 0.15481217, 0.18221325, 0.09622846],
+                     [0.11407729, 0.11330126, 0.09839504, 0.1050477, 0.07512029]])
+
+    width = 0.22
+    labels = ['HT only', 'MT question', 'MT only']
+    fig, ax = plt.subplots()
+    x = list(range(3))
+    rects_small = ax.bar(np.array(x) - 1.5 * width, data[:, 1], width, label='Pivot')
+    rects_tag = ax.bar(np.array(x) - 0.5 * width, data[:, 2], width, label='Tag')
+    rects_oqmr = ax.bar(np.array(x) + 0.5 * width, data[:, 3], width, label='OQMR')
+    rects_oqer = ax.bar(np.array(x) + 1.5 * width, data[:, 4], width, label='OQER')
+
+    ax.set_ylabel('EM Score')
+    ax.set_xticks(x)
+    ax.set_xticklabels(labels)
+    ax.legend()

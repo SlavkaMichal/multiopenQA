@@ -27,7 +27,7 @@ config_changes = {
     'reader_tokenizer_type'           : 't5-base',
     'reader_transformer_type'         : 't5-base',
 
-    "test_translated_query"           : True,  # use translated questions
+    "test_translated_query"           : False,  # use translated questions
     'test_translated_retrieval_search': False,
 
     'random_thingy'                   : 'hello there',
