@@ -19,26 +19,27 @@ preprocessed_data = {
     'test': Config.DATA_PATH + 'data/preprocessed/mkqa_TEST_split_topk20_ar_da_de_es_fi_fr_hu_it_ja_nl_pl_pt_ru_sv_th_tr_en.jsonl',
     }
 
-pretrained_model = 'experiments/nq_open/generative_reader_EM0.2800_S14844_Mt5-small_21-05-07_06:10:08_pcknot3'
+pretrained_model = '/home/xslavk01/multiopen_QA/multiopenQA/data/models/generative_reader_EM0.3345_S7000_Mt5-base_21-05-13_14:23:05_athena20'
+
 
 config = Config.config
 config_changes = {
-    'reader_tokenizer_type'           : 't5-small',
-    'reader_transformer_type'         : 't5-small',
+    'reader_tokenizer_type'           : 't5-base',
+    'reader_transformer_type'         : 't5-base',
 
     "test_translated_query"           : True,  # use translated questions
-    'test_translated_retrieval_search': True,
+    'test_translated_retrieval_search': False,
 
     'random_thingy'                   : 'hello there',
 
     'test_only'                       : True,
-    'log_results'                     : True,
+    'log_results'                     : False,
     'data'                            : preprocessed_data,
     # 'languages'                       : ['en'],
     'examples_per_sample'             : len(Config.languages),  # number of samples created from each sample
     "multi_lingual_query"             : False,
     'multi_lingual_answer_lang_code'  : False,
-    'pretrained_model'                : Config.DATA_PATH + pretrained_model,
+    'pretrained_model'                : pretrained_model,
     "english_ctxs_only"               : True,
     'test_irrelevant_passage_langs'   : None,  # or list, e.g.: ['ar', 'en']
     "test_include_golden_passage"     : False,
